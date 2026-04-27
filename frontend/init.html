@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统初始化 - Smart Parking</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="init-page">
+        <div class="init-container">
+            <h2>Smart Parking 系统初始化</h2>
+            <p class="subtitle">首次使用请配置数据库连接和停车场信息</p>
+            <div id="alert-box"></div>
+
+            <div class="card">
+                <div class="card-title">数据库连接</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>主机地址</label>
+                        <input type="text" id="host" class="form-control" value="localhost">
+                    </div>
+                    <div class="form-group">
+                        <label>端口</label>
+                        <input type="number" id="port" class="form-control" value="3306">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>数据库名</label>
+                        <input type="text" id="database" class="form-control" value="smart_parking">
+                    </div>
+                    <div class="form-group">
+                        <label>服务端口</label>
+                        <input type="number" id="server_port" class="form-control" value="8080">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>数据库用户名</label>
+                        <input type="text" id="user" class="form-control" value="root">
+                    </div>
+                    <div class="form-group">
+                        <label>数据库密码</label>
+                        <input type="password" id="password" class="form-control" placeholder="请输入MySQL密码">
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">停车场配置</div>
+                <div class="form-group">
+                    <label>停车场名称</label>
+                    <input type="text" id="parking_name" class="form-control" value="智慧停车场">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>每小时费率 (元)</label>
+                        <input type="number" id="fee" class="form-control" value="5.00" step="0.5">
+                    </div>
+                    <div class="form-group">
+                        <label>总车位数</label>
+                        <input type="number" id="capacity" class="form-control" value="100">
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn btn-primary btn-block btn-lg" onclick="handleInit()" id="init-btn">初始化系统</button>
+        </div>
+    </div>
+    <script src="/js/common.js"></script>
+    <script src="/js/init.js"></script>
+</body>
+</html>

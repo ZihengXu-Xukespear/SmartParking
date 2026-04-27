@@ -1,0 +1,38 @@
+# Build
+build/
+cmake-build-*/
+*.exe
+*.obj
+*.lib
+*.pdb
+*.exp
+*.ilk
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+
+# Conan generated
+conan_toolchain.cmake
+conanbuild*.bat
+conanrun*.bat
+deactivate_conan*.bat
+conandeps_legacy.cmake
+cmakedeps_macros.cmake
+asio*.cmake
+asioTargets.cmake
+
+# Config with real credentials
+config/db_config.json
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Claude Code
+.claude/
