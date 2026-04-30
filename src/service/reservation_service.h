@@ -34,7 +34,8 @@ public:
             escape(mysql, P_name) + "'";
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "查询停车场失败"; return false; }
         MYSQL_RES* res = mysql_store_result(mysql);
-        if (!res || mysql_num_rows(res) == 0) { error = "停车场不存在"; return false; }
+        if (!res) { error = "停车场不存在"; return false; }
+        if (mysql_num_rows(res) == 0) { mysql_free_result(res); error = "停车场不存在"; return false; }
         MYSQL_ROW row = mysql_fetch_row(res);
         int total = std::stoi(row[0]), current = std::stoi(row[1]), reserve = std::stoi(row[2]);
         mysql_free_result(res);

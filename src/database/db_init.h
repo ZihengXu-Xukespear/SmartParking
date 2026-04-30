@@ -110,31 +110,28 @@ public:
         mysql_query(mysql, parking_sql.c_str());
 
         // Create triggers
-        mysql_query(mysql,
-            "DROP TRIGGER IF EXISTS after_reservation_insert"
-        );
-        mysql_query(mysql,
+        mysql_query(mysql, "DROP TRIGGER IF EXISTS after_reservation_insert");
+        mysql_query(mysql, "DROP TRIGGER IF EXISTS after_reservation_delete");
+
+        if (mysql_query(mysql,
             "CREATE TRIGGER after_reservation_insert "
             "AFTER INSERT ON RESERVATION FOR EACH ROW "
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = P_reserve_count + 1 WHERE P_name = NEW.P_name; END"
-        );
+        ) != 0) return false;
 
-        mysql_query(mysql,
-            "DROP TRIGGER IF EXISTS after_reservation_delete"
-        );
-        mysql_query(mysql,
+        if (mysql_query(mysql,
             "CREATE TRIGGER after_reservation_delete "
             "AFTER DELETE ON RESERVATION FOR EACH ROW "
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = GREATEST(P_reserve_count - 1, 0) WHERE P_name = OLD.P_name; END"
-        );
+        ) != 0) return false;
 
         // Enable event scheduler and create cleanup event
         mysql_query(mysql, "SET GLOBAL event_scheduler = ON");
         mysql_query(mysql, "DROP EVENT IF EXISTS clean_expired_reservations");
-        mysql_query(mysql,
+        if (mysql_query(mysql,
             "CREATE EVENT clean_expired_reservations ON SCHEDULE EVERY 1 MINUTE DO "
             "BEGIN DELETE FROM RESERVATION WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE); END"
-        );
+        ) != 0) return false;
 
         return true;
     }

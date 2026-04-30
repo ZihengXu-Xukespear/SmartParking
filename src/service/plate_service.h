@@ -38,7 +38,6 @@ public:
 
     // 验证车牌号格式
     static bool validatePlate(const std::string& plate) {
-        if (plate.size() < 7 || plate.size() > 8) return false;
         // UTF-8 Chinese province abbreviation (3 bytes) + letter + 5 alphanumeric
         // Minimum valid: 3 (中文) + 1 (字母) + 5 (数字/字母) = 9 bytes for 7-char plate
         //                3 (中文) + 1 (字母) + 6 (数字/字母) = 10 bytes for 8-char plate (新能源)
