@@ -1,3 +1,7 @@
+#define _WIN32_WINNT 0x0601
+#define ASIO_STANDALONE
+#define CROW_STANDALONE
+
 #include "crow.h"
 #include "config.h"
 #include "database/db_init.h"
