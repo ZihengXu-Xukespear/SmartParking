@@ -2,6 +2,11 @@
 
 const user = checkAuth();
 if (user) initSidebar();
+// Only admin/operator can access vehicle records page
+if (!hasPerm('vehicle.query')) {
+    document.querySelector('.main-content').innerHTML = '<div class="card" style="text-align:center;padding:60px"><h2>权限不足</h2><p style="color:#999;margin-top:12px">此页面需要操作员或管理员权限</p><a href="/dashboard.html" class="btn btn-primary mt-3">返回主面板</a></div>';
+}
+const canDelete = hasPerm('vehicle.delete');
 
 const billingTypes = {
     'standard': '标准计费',
@@ -46,7 +51,7 @@ async function searchRecords() {
             <td>${r.location}</td>
             <td><span class="badge badge-primary">${billingTypes[r.billing_type] || r.billing_type}</span></td>
             <td>
-                <button class="btn btn-danger btn-sm" onclick="deleteRecord(${r.id})">删除</button>
+                ${canDelete ? `<button class="btn btn-danger btn-sm" onclick="deleteRecord(${r.id})">删除</button>` : '<span style="color:#999">-</span>'}
             </td>
         </tr>
     `).join('');

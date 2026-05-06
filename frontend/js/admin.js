@@ -1,250 +1,254 @@
-// 管理页面逻辑
-
+// Admin page
 const user = checkAuth();
-if (user) {
-    initSidebar();
-    if (user.role !== 'admin') {
-        document.querySelector('.main-content').innerHTML =
-            '<div class="card" style="text-align:center;padding:60px"><h2>权限不足</h2><p style="color:#999;margin-top:12px">此页面仅管理员可访问</p><a href="/dashboard.html" class="btn btn-primary mt-3">返回主面板</a></div>';
-    }
+if (user) { initSidebar(); if (!hasPerm('user.view')) { document.querySelector('.main-content').innerHTML = '<div class="card" style="text-align:center;padding:60px"><h2>权限不足</h2></div>'; } }
+
+function roleLabel(r) { const m={root:'超级管理员',admin:'管理员',operator:'操作员',user:'普通用户'}; return m[r]||'用户'; }
+function roleBadge(r) { const m={root:'badge-danger',admin:'badge-warning',operator:'badge-primary',user:'badge-default'}; return m[r]||'badge-default'; }
+
+function switchTab(tab, ev) {
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    document.querySelectorAll('[id^="tab-"]').forEach(t=>t.classList.add('hidden'));
+    if(ev&&ev.target) ev.target.classList.add('active');
+    document.getElementById('tab-'+tab).classList.remove('hidden');
+    if(tab==='users') loadUsers(); else if(tab==='recharge') loadUsersForRecharge();
+    else if(tab==='billing') loadBillingRules(); else if(tab==='passes') loadPasses();
+    else if(tab==='plans') loadPlans(); else if(tab==='vehicles') loadVehicles('all');
+    else if(tab==='blacklist') loadBlacklist(); else if(tab==='reports') loadReports();
+    else if(tab==='notice') loadNotice();
 }
 
-// Tab switching
-function switchTab(tab) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('[id^="tab-"]').forEach(t => t.classList.add('hidden'));
-
-    event.target.classList.add('active');
-    document.getElementById('tab-' + tab).classList.remove('hidden');
-
-    if (tab === 'users') loadUsers();
-    else if (tab === 'billing') loadBillingRules();
-    else if (tab === 'passes') loadPasses();
-}
-
-// === Users ===
+// ========== Users ==========
 async function loadUsers() {
     const res = await get('/api/user/list');
     const tbody = document.getElementById('users-table');
-    if (!res || !res.ok) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999">加载失败</td></tr>';
-        return;
-    }
-    const users = res.data.users || [];
-    if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999">暂无用户</td></tr>';
-        return;
-    }
-    tbody.innerHTML = users.map(u => `
-        <tr>
-            <td>${u.id}</td>
-            <td><strong>${u.username}</strong></td>
-            <td>${u.telephone}</td>
-            <td>${u.truename}</td>
-            <td><span class="badge ${u.role === 'admin' ? 'badge-danger' : 'badge-primary'}">${u.role === 'admin' ? '管理员' : '用户'}</span></td>
-            <td>${formatDateTime(u.created_at)}</td>
-            <td>
-                <button class="btn btn-default btn-sm" onclick="editUser(${u.id},'${u.username}','${u.telephone}','${u.truename}','${u.role}')">编辑</button>
-                <button class="btn btn-danger btn-sm" onclick="deleteUser(${u.id})">删除</button>
-            </td>
-        </tr>
-    `).join('');
+    if (!res||!res.ok) { tbody.innerHTML='<tr><td colspan="8">加载失败</td></tr>'; return; }
+    const users = res.data.users||[];
+    if (!users.length) { tbody.innerHTML='<tr><td colspan="8">暂无用户</td></tr>'; return; }
+    tbody.innerHTML = users.map(u=>`<tr data-uid="${u.id}" data-urole="${u.role}">
+        <td>${u.id}</td><td><strong>${escapeHtml(u.username)}</strong></td>
+        <td>${escapeHtml(u.telephone)}</td><td>${escapeHtml(u.truename)}</td>
+        <td><span class="badge ${roleBadge(u.role)}">${roleLabel(u.role)}</span></td>
+        <td>¥${parseFloat(u.balance||0).toFixed(2)}</td><td>${formatDateTime(u.created_at)}</td>
+        <td><button class="btn btn-default btn-sm btn-edit-user">编辑</button>
+        ${u.role==='root'?'<span style="color:#999;font-size:12px">受保护</span>':'<button class="btn btn-danger btn-sm btn-delete-user">删除</button>'}</td></tr>`).join('');
 }
-
-function editUser(id, username, telephone, truename, role) {
-    document.getElementById('user-modal-title').textContent = '编辑用户';
-    document.getElementById('edit-user-id').value = id;
-    document.getElementById('modal-username').value = username;
-    document.getElementById('modal-password').value = '';
-    document.getElementById('modal-password').placeholder = '留空则不修改密码';
-    document.getElementById('modal-telephone').value = telephone;
-    document.getElementById('modal-truename').value = truename;
-    document.getElementById('modal-role').value = role;
-    showModal('user-modal');
+function editUser(row) {
+    const id = parseInt(row.dataset.uid);
+    document.getElementById('user-modal-title').textContent='编辑用户'; document.getElementById('edit-user-id').value=id;
+    document.getElementById('modal-username').value=row.cells[1].textContent.trim();
+    document.getElementById('modal-password').value=''; document.getElementById('modal-password').placeholder='留空则不修改密码';
+    document.getElementById('modal-telephone').value=row.cells[2].textContent.trim();
+    document.getElementById('modal-truename').value=row.cells[3].textContent.trim();
+    document.getElementById('modal-role').value=row.dataset.urole; showModal('user-modal');
 }
-
 async function saveUser() {
-    const editId = document.getElementById('edit-user-id').value;
-    const username = document.getElementById('modal-username').value.trim();
-    const password = document.getElementById('modal-password').value;
-    const telephone = document.getElementById('modal-telephone').value.trim();
-    const truename = document.getElementById('modal-truename').value.trim();
-    const role = document.getElementById('modal-role').value;
-
+    const editId=document.getElementById('edit-user-id').value;
+    const username=document.getElementById('modal-username').value.trim(), password=document.getElementById('modal-password').value;
+    const telephone=document.getElementById('modal-telephone').value.trim(), truename=document.getElementById('modal-truename').value.trim();
+    const role=document.getElementById('modal-role').value;
+    if(!username){alert('用户名不能为空');return;}
     let res;
-    if (editId) {
-        res = await put('/api/user/update', { id: parseInt(editId), telephone, truename, role, password: password || undefined });
-    } else {
-        if (!password) { alert('请输入密码'); return; }
-        res = await post('/api/user/add', { username, password, telephone, truename, role });
-    }
-
-    if (res && res.ok) {
-        hideModal('user-modal');
-        showSuccess('alert-box', editId ? '用户已更新' : '用户已添加');
-        loadUsers();
-        resetUserModal();
-    } else {
-        alert(res?.data?.error || '操作失败');
-    }
+    if(editId) res=await put('/api/user/update',{id:parseInt(editId),username,telephone,truename,role,password:password||undefined});
+    else { if(!password){alert('请输入密码');return;} res=await post('/api/user/add',{username,password,telephone,truename,role}); }
+    if(res&&res.ok){hideModal('user-modal');showSuccess('alert-box',editId?'用户已更新':'用户已添加');loadUsers();resetUserModal();}
+    else alert(res?.data?.error||'操作失败');
 }
-
 function resetUserModal() {
-    document.getElementById('edit-user-id').value = '';
-    document.getElementById('user-modal-title').textContent = '添加用户';
-    document.getElementById('modal-username').value = '';
-    document.getElementById('modal-password').value = '';
-    document.getElementById('modal-password').placeholder = '请输入密码';
-    document.getElementById('modal-telephone').value = '';
-    document.getElementById('modal-truename').value = '';
-    document.getElementById('modal-role').value = 'user';
+    document.getElementById('edit-user-id').value=''; document.getElementById('user-modal-title').textContent='添加用户';
+    document.getElementById('modal-username').value=''; document.getElementById('modal-password').value=''; document.getElementById('modal-password').placeholder='请输入密码';
+    document.getElementById('modal-telephone').value=''; document.getElementById('modal-truename').value=''; document.getElementById('modal-role').value='user';
 }
 
-async function deleteUser(id) {
-    if (!confirm('确定要删除此用户吗？')) return;
-    const res = await del('/api/user/' + id);
-    if (res && res.ok) {
-        showSuccess('alert-box', '用户已删除');
-        loadUsers();
-    } else {
-        showError('alert-box', res?.data?.error || '删除失败');
-    }
+// ========== Recharge ==========
+async function loadUsersForRecharge() {
+    const res=await get('/api/user/list'); const sel=document.getElementById('recharge-user');
+    if(!res||!res.ok) return;
+    sel.innerHTML='<option value="">选择用户...</option>'+res.data.users.map(u=>`<option value="${u.id}">${escapeHtml(u.username)} (${roleLabel(u.role)}) - ¥${parseFloat(u.balance||0).toFixed(2)}</option>`).join('');
+}
+async function doRecharge() {
+    const userId=document.getElementById('recharge-user').value, amount=parseFloat(document.getElementById('recharge-amount').value);
+    const desc=document.getElementById('recharge-desc').value.trim()||'管理员充值';
+    if(!userId||!amount||amount<=0){showError('recharge-alert','请选择用户并输入有效金额');return;}
+    const r=await post('/api/balance/recharge',{user_id:parseInt(userId),amount,description:desc});
+    if(r&&r.ok){showSuccess('recharge-alert','充值成功！新余额: ¥'+parseFloat(r.data.balance).toFixed(2));loadUsersForRecharge();}
+    else showError('recharge-alert',r?.data?.error||'充值失败');
 }
 
-// === Billing Rules ===
+// ========== Pass Plans ==========
+async function loadPlans() {
+    const res=await get('/api/pass-plans'); const tbody=document.getElementById('plans-table');
+    if(!res||!res.ok){tbody.innerHTML='<tr><td colspan="6">加载失败</td></tr>';return;}
+    const plans=res.data.plans||[];
+    tbody.innerHTML=plans.map(p=>`<tr data-plan-id="${p.id}">
+        <td>${escapeHtml(p.plan_name)}</td><td>${p.duration_days}天</td><td>¥${parseFloat(p.price).toFixed(2)}</td>
+        <td>${escapeHtml(p.description||'-')}</td><td>${p.is_active?'<span class="badge badge-success">启用</span>':'<span class="badge badge-danger">禁用</span>'}</td>
+        <td><button class="btn btn-default btn-sm btn-edit-plan">编辑</button><button class="btn btn-danger btn-sm btn-delete-plan">删除</button></td></tr>`).join('');
+}
+async function savePlan() {
+    const id=document.getElementById('edit-plan-id').value;
+    const body={plan_name:document.getElementById('plan-name').value.trim(),duration_days:parseInt(document.getElementById('plan-days').value),price:parseFloat(document.getElementById('plan-price').value),description:document.getElementById('plan-desc').value.trim(),is_active:document.getElementById('plan-active').checked};
+    let r; if(id) r=await put('/api/pass-plans/'+id,body); else r=await post('/api/pass-plans',body);
+    if(r&&r.ok){hideModal('plan-modal');showSuccess('alert-box','套餐已保存');loadPlans();} else alert(r?.data?.error||'保存失败');
+}
+function openPlanModal(planId, name, days, price, desc, active) {
+    document.getElementById('edit-plan-id').value=planId||''; document.getElementById('plan-name').value=name||'';
+    document.getElementById('plan-days').value=days||30; document.getElementById('plan-price').value=price||0;
+    document.getElementById('plan-desc').value=desc||''; document.getElementById('plan-active').checked=active!==false; showModal('plan-modal');
+}
+
+// ========== Billing Rules ==========
 async function loadBillingRules() {
-    const res = await get('/api/parking/billing-rules');
-    const tbody = document.getElementById('billing-table');
-    if (!res || !res.ok) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999">加载失败</td></tr>';
-        return;
-    }
-    const rules = res.data.rules || [];
-    tbody.innerHTML = rules.map(r => `
-        <tr>
-            <td>${r.rule_name}</td>
-            <td><span class="badge badge-primary">${r.rule_type}</span></td>
-            <td>${r.free_minutes}</td>
-            <td>${r.hourly_rate}</td>
-            <td>${r.max_daily_fee || '-'}</td>
-            <td>${r.description || '-'}</td>
-            <td>${r.is_active ? '<span class="badge badge-success">启用</span>' : '<span class="badge badge-danger">禁用</span>'}</td>
-            <td><button class="btn btn-default btn-sm" onclick="editBillingRule(${r.id})">编辑</button></td>
-        </tr>
-    `).join('');
+    const res=await get('/api/parking/billing-rules'); const tbody=document.getElementById('billing-table');
+    if(!res||!res.ok){tbody.innerHTML='<tr><td colspan="8">加载失败</td></tr>';return;}
+    tbody.innerHTML=(res.data.rules||[]).map(r=>`<tr data-billing-id="${r.id}" data-billing-type="${escapeHtml(r.rule_type)}" data-tier-config="${escapeHtml(r.tier_config||'')}">
+        <td>${escapeHtml(r.rule_name)}</td><td>${escapeHtml(r.rule_type)}</td><td>${r.free_minutes}</td>
+        <td>${parseFloat(r.hourly_rate).toFixed(2)}</td><td>${parseFloat(r.max_daily_fee||0).toFixed(2)}</td>
+        <td>${escapeHtml(r.description||'-')}</td><td>${r.is_active?'<span class="badge badge-success">启用</span>':'<span class="badge badge-danger">禁用</span>'}</td>
+        <td><button class="btn btn-default btn-sm btn-edit-billing">编辑</button></td></tr>`).join('');
 }
-
-function editBillingRule(id) {
-    // Find rule data from table
-    const rules = document.querySelectorAll('#billing-table tr');
-    for (const row of rules) {
-        const editBtn = row.querySelector(`button[onclick="editBillingRule(${id})"]`);
-        if (editBtn) {
-            const cells = row.querySelectorAll('td');
-            document.getElementById('edit-billing-id').value = id;
-            document.getElementById('billing-name').value = cells[0].textContent;
-            document.getElementById('billing-free').value = cells[2].textContent;
-            document.getElementById('billing-rate').value = cells[3].textContent;
-            document.getElementById('billing-max').value = cells[4].textContent === '-' ? '' : cells[4].textContent;
-            document.getElementById('billing-desc').value = cells[5].textContent === '-' ? '' : cells[5].textContent;
-            document.getElementById('billing-active').checked = cells[6].textContent.includes('启用');
-            showModal('billing-modal');
-            break;
-        }
-    }
+function editBillingRule(row) {
+    const type=row.dataset.billingType;
+    document.getElementById('edit-billing-id').value=parseInt(row.dataset.billingId); document.getElementById('billing-name').value=row.cells[0].textContent.trim();
+    document.getElementById('billing-free').value=row.cells[2].textContent.trim(); document.getElementById('billing-rate').value=row.cells[3].textContent.trim();
+    document.getElementById('billing-max').value=row.cells[4].textContent.trim()==='-'?'':row.cells[4].textContent.trim();
+    document.getElementById('billing-desc').value=row.cells[5].textContent.trim()==='-'?'':row.cells[5].textContent.trim();
+    document.getElementById('billing-active').checked=row.cells[6].textContent.includes('启用'); document.getElementById('edit-billing-type').value=type;
+    const tg=document.getElementById('tier-config-group'), tc=document.getElementById('billing-tier-config');
+    tg.style.display=type==='tiered'?'':'none'; tc.value=row.dataset.tierConfig||''; showModal('billing-modal');
 }
-
 async function saveBillingRule() {
-    const id = document.getElementById('edit-billing-id').value;
-    const body = {
-        rule_name: document.getElementById('billing-name').value.trim(),
-        rule_type: 'standard', // Preserve original type
-        free_minutes: parseInt(document.getElementById('billing-free').value),
-        hourly_rate: parseFloat(document.getElementById('billing-rate').value),
-        max_daily_fee: parseFloat(document.getElementById('billing-max').value) || 0,
-        description: document.getElementById('billing-desc').value.trim(),
-        is_active: document.getElementById('billing-active').checked
-    };
-    // Get original type from table
-    const rules = document.querySelectorAll('#billing-table tr');
-    for (const row of rules) {
-        const editBtn = row.querySelector(`button[onclick="editBillingRule(${id})"]`);
-        if (editBtn) {
-            const badge = row.querySelector('.badge-primary');
-            if (badge) body.rule_type = badge.textContent;
-            break;
-        }
-    }
-
-    const res = await put('/api/parking/billing-rules/' + id, body);
-    if (res && res.ok) {
-        hideModal('billing-modal');
-        showSuccess('alert-box', '规则已更新');
-        loadBillingRules();
-    } else {
-        alert(res?.data?.error || '更新失败');
-    }
+    const id=document.getElementById('edit-billing-id').value, type=document.getElementById('edit-billing-type').value;
+    const body={rule_name:document.getElementById('billing-name').value.trim(),rule_type:type,free_minutes:parseInt(document.getElementById('billing-free').value),hourly_rate:parseFloat(document.getElementById('billing-rate').value),max_daily_fee:parseFloat(document.getElementById('billing-max').value)||0,description:document.getElementById('billing-desc').value.trim(),is_active:document.getElementById('billing-active').checked};
+    if(type==='tiered') body.tier_config=document.getElementById('billing-tier-config').value.trim();
+    const r=await put('/api/parking/billing-rules/'+id,body);
+    if(r&&r.ok){hideModal('billing-modal');showSuccess('alert-box','规则已更新');loadBillingRules();} else alert(r?.data?.error||'更新失败');
 }
 
-// === Monthly Passes ===
+// ========== Monthly Passes ==========
 async function loadPasses() {
-    const res = await get('/api/parking/monthly-passes');
-    const tbody = document.getElementById('passes-table');
-    if (!res || !res.ok) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999">加载失败</td></tr>';
-        return;
-    }
-    const passes = res.data.passes || [];
-    if (passes.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#999">暂无月卡</td></tr>';
-        return;
-    }
-    tbody.innerHTML = passes.map(p => `
-        <tr>
-            <td>${p.id}</td>
-            <td><strong>${p.license_plate}</strong></td>
-            <td>${p.pass_type}</td>
-            <td>${formatDate(p.start_date)}</td>
-            <td>${formatDate(p.end_date)}</td>
-            <td>${formatFee(p.fee)}</td>
-            <td>${p.is_active ? '<span class="badge badge-success">有效</span>' : '<span class="badge badge-danger">过期</span>'}</td>
-            <td><button class="btn btn-danger btn-sm" onclick="deletePass(${p.id})">删除</button></td>
-        </tr>
-    `).join('');
+    const res=await get('/api/parking/monthly-passes'); const tbody=document.getElementById('passes-table');
+    if(!res||!res.ok){tbody.innerHTML='<tr><td colspan="8">加载失败</td></tr>';return;}
+    const passes=res.data.passes||[];
+    if(!passes.length){tbody.innerHTML='<tr><td colspan="8">暂无</td></tr>';return;}
+    tbody.innerHTML=passes.map(p=>`<tr data-pass-id="${p.id}">
+        <td>${p.id}</td><td><strong>${escapeHtml(p.license_plate)}</strong></td><td>${escapeHtml(p.pass_type)}</td>
+        <td>${formatDate(p.start_date)}</td><td>${formatDate(p.end_date)}</td><td>¥${parseFloat(p.fee).toFixed(2)}</td>
+        <td>${p.is_active?'<span class="badge badge-success">有效</span>':'<span class="badge badge-danger">失效</span>'}</td>
+        <td><button class="btn btn-default btn-sm btn-edit-pass">编辑</button><button class="btn btn-danger btn-sm btn-delete-pass">停用</button></td></tr>`).join('');
 }
-
+function openPassModal(id) {
+    document.getElementById('edit-pass-id').value=id||''; document.getElementById('pass-modal-title').textContent=id?'编辑月卡':'添加月卡';
+    if(id){
+        const row=document.querySelector(`tr[data-pass-id="${id}"]`);
+        if(row){document.getElementById('pass-edit-plate').value=row.cells[1].textContent.trim();document.getElementById('pass-edit-type').value=row.cells[2].textContent.trim();document.getElementById('pass-edit-start').value=row.cells[3].textContent.trim();document.getElementById('pass-edit-end').value=row.cells[4].textContent.trim();document.getElementById('pass-edit-fee').value=parseFloat(row.cells[5].textContent.replace('¥',''));document.getElementById('pass-edit-active').checked=row.cells[6].textContent.includes('有效');}
+    } else {
+        document.getElementById('pass-edit-plate').value='';document.getElementById('pass-edit-type').value='月卡';document.getElementById('pass-edit-start').value=new Date().toISOString().split('T')[0];const e=new Date();e.setDate(e.getDate()+30);document.getElementById('pass-edit-end').value=e.toISOString().split('T')[0];document.getElementById('pass-edit-fee').value='300';document.getElementById('pass-edit-active').checked=true;
+    }
+    showModal('pass-modal');
+}
 async function savePass() {
-    const body = {
-        license_plate: document.getElementById('pass-plate').value.trim(),
-        pass_type: document.getElementById('pass-type').value,
-        start_date: document.getElementById('pass-start').value,
-        end_date: document.getElementById('pass-end').value,
-        fee: parseFloat(document.getElementById('pass-fee').value)
-    };
-    if (!body.license_plate || !body.start_date || !body.end_date) {
-        alert('请填写完整信息');
-        return;
-    }
-    const res = await post('/api/parking/monthly-passes', body);
-    if (res && res.ok) {
-        hideModal('pass-modal');
-        showSuccess('alert-box', '月卡已添加');
-        loadPasses();
-    } else {
-        alert(res?.data?.error || '添加失败');
-    }
+    const id=document.getElementById('edit-pass-id').value;
+    const body={license_plate:document.getElementById('pass-edit-plate').value.trim(),pass_type:document.getElementById('pass-edit-type').value.trim(),start_date:document.getElementById('pass-edit-start').value,end_date:document.getElementById('pass-edit-end').value,fee:parseFloat(document.getElementById('pass-edit-fee').value)};
+    let r;
+    if(id) r=await put('/api/parking/monthly-passes/'+id,body);
+    else r=await post('/api/parking/monthly-passes',body);
+    if(r&&r.ok){hideModal('pass-modal');showSuccess('alert-box','月卡已保存');loadPasses();} else alert(r?.data?.error||'保存失败');
 }
 
-async function deletePass(id) {
-    if (!confirm('确定要删除此月卡吗？')) return;
-    const res = await del('/api/parking/monthly-passes/' + id);
-    if (res && res.ok) {
-        showSuccess('alert-box', '月卡已删除');
-        loadPasses();
-    } else {
-        showError('alert-box', '删除失败');
-    }
+// ========== Vehicle Management ==========
+let allVehicles = [];
+let currentFilter = 'all';
+async function loadVehicles(filter) {
+    currentFilter = filter || 'all';
+    const res = await get('/api/vehicle/status');
+    const tbody = document.getElementById('vehicles-mgmt-table');
+    if (!res || !res.ok) { tbody.innerHTML = '<tr><td colspan="5">加载失败</td></tr>'; return; }
+    allVehicles = res.data.vehicles || [];
+    renderVehicles(currentFilter);
+}
+function renderVehicles(filter) {
+    currentFilter = filter || currentFilter;
+    const tbody = document.getElementById('vehicles-mgmt-table');
+    const search = (document.getElementById('vehicle-search')?.value || '').trim().toUpperCase();
+    let list = allVehicles;
+    if (currentFilter === 'parked') list = allVehicles.filter(v => v.is_parked);
+    else if (currentFilter === 'left') list = allVehicles.filter(v => !v.is_parked);
+    if (search) list = list.filter(v => v.license_plate.toUpperCase().includes(search));
+    if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" style="color:#999">暂无数据</td></tr>'; return; }
+    tbody.innerHTML = list.map(v => `<tr>
+        <td><strong>${escapeHtml(v.license_plate)}</strong></td>
+        <td>${formatDateTime(v.last_check_in)}</td>
+        <td>${v.is_parked ? '<span class="badge badge-primary">停放中</span>' : '<span class="badge badge-success">已离开</span>'}</td>
+        <td>${v.total_records}</td>
+        <td>${v.is_parked ? '<button class="btn btn-danger btn-sm btn-checkout-vehicle">出库</button>' : '<span style="color:#999">-</span>'}</td>
+    </tr>`).join('');
+}
+async function checkoutVehicle(plate) {
+    if (!confirm('确定对 ' + plate + ' 执行出库操作吗？费用将从您的余额扣除。')) return;
+    const res = await post('/api/vehicle/checkout', { license_plate: plate });
+    if (res && res.ok) { showSuccess('vehicle-mgmt-alert', plate + ' 出库成功！费用: ¥' + parseFloat(res.data.fee).toFixed(2) + '。请在10分钟内驶离'); loadVehicles('all'); }
+    else showError('vehicle-mgmt-alert', res?.data?.error || '出库失败');
 }
 
-// Init
+// ========== Blacklist ==========
+async function loadBlacklist() {
+    const res=await get('/api/blacklist'); const tbody=document.getElementById('blacklist-table');
+    if(!res||!res.ok){tbody.innerHTML='<tr><td colspan="5">加载失败</td></tr>';return;}
+    const list=res.data.blacklist||[];
+    if(!list.length){tbody.innerHTML='<tr><td colspan="5">暂无</td></tr>';return;}
+    tbody.innerHTML=list.map(e=>`<tr data-bl-id="${e.id}"><td>${e.id}</td><td><strong>${escapeHtml(e.license_plate)}</strong></td><td>${escapeHtml(e.reason||'-')}</td><td>${formatDateTime(e.created_at)}</td><td><button class="btn btn-danger btn-sm btn-remove-blacklist">移除</button></td></tr>`).join('');
+}
+async function addBlacklist() {
+    const plate=document.getElementById('bl-plate').value.trim(), reason=document.getElementById('bl-reason').value.trim();
+    if(!plate){showError('bl-alert','请输入车牌号');return;}
+    const r=await post('/api/blacklist',{license_plate:plate,reason});
+    if(r&&r.ok){showSuccess('bl-alert','已添加');document.getElementById('bl-plate').value='';document.getElementById('bl-reason').value='';loadBlacklist();}
+    else showError('bl-alert',r?.data?.error||'添加失败');
+}
+
+// ========== Reports ==========
+async function loadReports() {
+    const summary=await get('/api/report/summary');
+    if(summary&&summary.ok){const s=summary.data;document.getElementById('rpt-today').textContent='¥'+parseFloat(s.today_income).toFixed(2);document.getElementById('rpt-month').textContent='¥'+parseFloat(s.month_income).toFixed(2);document.getElementById('rpt-total').textContent='¥'+parseFloat(s.total_income).toFixed(2);document.getElementById('rpt-parking').textContent='¥'+parseFloat(s.parking_fees).toFixed(2);document.getElementById('rpt-passes').textContent='¥'+parseFloat(s.pass_sales).toFixed(2);document.getElementById('rpt-reserve').textContent='¥'+parseFloat(s.reservation_prepaid).toFixed(2);}
+    const daily=await get('/api/report/daily');
+    if(daily&&daily.ok){const dom=document.getElementById('revenue-chart');if(!dom)return;const chart=echarts.init(dom);chart.setOption({tooltip:{trigger:'axis'},xAxis:{type:'category',data:daily.data.dates,axisLabel:{rotate:45,fontSize:10}},yAxis:{type:'value'},series:[{type:'line',data:daily.data.values,smooth:true,itemStyle:{color:'#1890ff'},areaStyle:{color:'rgba(24,144,255,0.1)'}}],grid:{left:40,right:20,top:20,bottom:50}});}
+}
+
+// ========== Event delegation ==========
+document.addEventListener('click',function(e){
+    const t=e.target; if(!t||!t.classList) return;
+    const row=t.closest('tr'); if(!row) return;
+    if(t.classList.contains('btn-edit-user')) { editUser(row); }
+    else if(t.classList.contains('btn-delete-user')) { deleteUser(parseInt(row.dataset.uid)); }
+    else if(t.classList.contains('btn-edit-plan')) {
+        const pid=parseInt(row.dataset.planId), cells=row.cells;
+        openPlanModal(pid,cells[0].textContent.trim(),parseInt(cells[1].textContent),parseFloat(cells[2].textContent.replace('¥','')),cells[3].textContent.trim(),cells[4].textContent.includes('启用'));
+    }
+    else if(t.classList.contains('btn-delete-plan')) { deletePlan(parseInt(row.dataset.planId)); }
+    else if(t.classList.contains('btn-edit-billing')) { editBillingRule(row); }
+    else if(t.classList.contains('btn-edit-pass')) { openPassModal(parseInt(row.dataset.passId)); }
+    else if(t.classList.contains('btn-delete-pass')) { deactivatePass(parseInt(row.dataset.passId)); }
+    else if(t.classList.contains('btn-remove-blacklist')) { removeBlacklist(parseInt(row.dataset.blId)); }
+    else if(t.classList.contains('btn-checkout-vehicle')) { checkoutVehicle(row.cells[0].textContent.trim()); }
+});
+
+async function deleteUser(id) { if(!confirm('确定删除用户(ID:'+id+')？'))return; const r=await del('/api/user/'+id); if(r&&r.ok){showSuccess('alert-box','已删除');loadUsers();} else showError('alert-box',r?.data?.error||'删除失败'); }
+async function deletePlan(id) { if(!confirm('确定删除此套餐？'))return; const r=await del('/api/pass-plans/'+id); if(r&&r.ok){showSuccess('alert-box','已删除');loadPlans();} else showError('alert-box','删除失败'); }
+async function deactivatePass(id) { if(!confirm('确定停用此月卡？停用后该车牌恢复收费。'))return; const r=await del('/api/parking/monthly-passes/'+id); if(r&&r.ok){showSuccess('alert-box','月卡已停用');loadPasses();} else showError('alert-box','停用失败'); }
+async function removeBlacklist(id) { if(!confirm('确定移除？'))return; const r=await del('/api/blacklist/'+id); if(r&&r.ok){showSuccess('alert-box','已移除');loadBlacklist();} }
+
+// ========== Notice ==========
+async function loadNotice() {
+    const res = await get('/api/bulletin');
+    if (res && res.ok) {
+        document.getElementById('notice-editor').value = res.data.notice || '';
+    }
+}
+async function saveNotice() {
+    const notice = document.getElementById('notice-editor').value.trim();
+    const r = await put('/api/bulletin', { notice });
+    if (r && r.ok) showSuccess('notice-alert', '公告已更新');
+    else showError('notice-alert', r?.data?.error || '更新失败');
+}
+
 loadUsers();

@@ -28,6 +28,9 @@
                 <a class="nav-item" id="nav-reservation" href="/reservation.html">
                     <span class="icon">&#128197;</span> 预约管理
                 </a>
+                <a class="nav-item" id="nav-profile" href="/profile.html">
+                    <span class="icon">&#128101;</span> 个人中心
+                </a>
             </div>
             <div class="sidebar-footer">
                 <div class="user-info">
@@ -45,6 +48,7 @@
         <div class="main-content">
             <div class="page-header">
                 <h1>主面板</h1>
+                <select id="parking-selector" onchange="onParkingChange()" style="float:right;margin-top:-30px;padding:6px 12px;border:1px solid #d9d9d9;border-radius:4px;font-size:13px"></select>
                 <p>停车场实时状态与管理操作</p>
             </div>
 
@@ -69,16 +73,18 @@
             </div>
 
             <div class="row">
-                <!-- Left: Check-in/Check-out -->
+                <!-- Left Column -->
                 <div class="col-2">
-                    <div class="card">
-                        <div class="card-title">车辆入库 / 出库</div>
+
+                    <!-- Admin/Operator: Vehicle Check-in/Check-out -->
+                    <div class="card" id="card-vehicle-ops">
+                        <div class="card-title">车辆入库</div>
                         <div id="vehicle-alert"></div>
                         <div class="form-group">
                             <label>车牌号</label>
                             <div class="plate-input-group">
                                 <input type="text" id="plate-input" class="form-control" placeholder="例: 京A12345" maxlength="10">
-                                <button class="btn btn-default btn-sm" onclick="handlePlateRecognize()" title="车牌识别(预留)">识别</button>
+                                <button class="btn btn-default btn-sm" onclick="handlePlateRecognize()" id="btn-plate-recognize" title="车牌识别(预留)">识别</button>
                             </div>
                         </div>
                         <div class="form-group">
@@ -91,13 +97,39 @@
                             </select>
                         </div>
                         <div class="actions mt-2">
-                            <button class="btn btn-primary" onclick="handleCheckIn()">车辆入库</button>
-                            <button class="btn btn-danger" onclick="handleCheckOut()">车辆出库</button>
+                            <button class="btn btn-primary" onclick="handleCheckIn()" id="btn-checkin">车辆入库</button>
+                            <button class="btn btn-danger" onclick="handleCheckOut()" id="btn-checkout">车辆出库</button>
                         </div>
                     </div>
 
-                    <!-- Recent Records -->
-                    <div class="card">
+                    <!-- User: Balance + Pass Plans -->
+                    <div class="card" id="card-balance">
+                        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+                            <span>我的余额 <span id="user-balance" style="color:#ff4d4f;font-weight:bold">¥0.00</span></span>
+                            <button class="btn btn-primary btn-sm" id="btn-recharge" onclick="openRechargeModal()">充值</button>
+                        </div>
+                        <div id="balance-transactions" style="max-height:160px;overflow-y:auto"></div>
+                    </div>
+                    <div class="card" id="card-pass-plans">
+                        <div class="card-title">套餐购买</div>
+                        <div id="pass-plans-container"><p style="color:#999">加载中...</p></div>
+                    </div>
+
+                    <!-- My Vehicles -->
+                    <div class="card" id="card-my-vehicles">
+                        <div class="card-title">我的车辆</div>
+                        <div id="my-vehicles-alert"></div>
+                        <div id="my-vehicles-container">
+                            <div class="form-row" style="gap:6px;margin-bottom:10px">
+                                <input type="text" id="my-vehicle-input" class="form-control" placeholder="添加车牌号（如京A12345）" maxlength="10" style="flex:1;padding:6px 10px;font-size:13px">
+                                <button class="btn btn-primary btn-sm" onclick="addMyVehicle()">添加</button>
+                            </div>
+                            <div id="my-vehicles-list" style="max-height:200px;overflow-y:auto"><p style="color:#999;font-size:13px">暂无车辆，请添加您的车牌号</p></div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Vehicle Records -->
+                    <div class="card" id="card-recent-records">
                         <div class="card-title">最近记录</div>
                         <div class="table-wrapper">
                             <table>
@@ -118,14 +150,16 @@
                     </div>
                 </div>
 
-                <!-- Right: Pie Chart + Settings -->
+                <!-- Right Column -->
                 <div class="col-1">
+                    <!-- Pie Chart -->
                     <div class="card">
                         <div class="card-title">车位占用情况</div>
                         <div class="chart-container" id="pie-chart"></div>
                     </div>
 
-                    <div class="card">
+                    <!-- Admin: Parking Settings -->
+                    <div class="card" id="card-settings">
                         <div class="card-title">停车场信息</div>
                         <div class="form-group">
                             <label>停车场名称</label>
@@ -142,13 +176,75 @@
                         <button class="btn btn-primary btn-sm" onclick="updateSettings()">保存设置</button>
                     </div>
 
-                    <!-- Plate recognition stub -->
-                    <div class="card">
+                    <!-- Bulletin Board -->
+                    <div class="card" id="card-bulletin">
+                        <div class="card-title">公告栏</div>
+                        <div id="bulletin-content" style="font-size:13px;line-height:1.8;white-space:pre-wrap">
+                            <p style="color:#999">加载中...</p>
+                        </div>
+                    </div>
+
+                    <!-- Plate recognition stub (admin/operator) -->
+                    <div class="card" id="card-plate-recognition">
                         <div class="card-title">车牌识别 <span class="badge badge-warning">预留</span></div>
                         <p style="color:#666;font-size:13px;margin-bottom:12px">OpenCV/EasyPR 接口已预留，集成后可自动识别车牌</p>
                         <div id="plate-result"></div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recharge Modal -->
+    <div class="modal-overlay" id="recharge-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>自助充值</h3>
+                <button class="modal-close" onclick="hideModal('recharge-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="recharge-alert"></div>
+                <p style="color:#666;font-size:13px;margin-bottom:12px">选择或输入充值金额</p>
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+                    <button class="btn btn-default recharge-preset" data-amount="50" onclick="setRechargeAmount(50)">¥50</button>
+                    <button class="btn btn-default recharge-preset" data-amount="100" onclick="setRechargeAmount(100)">¥100</button>
+                    <button class="btn btn-default recharge-preset" data-amount="200" onclick="setRechargeAmount(200)">¥200</button>
+                    <button class="btn btn-default recharge-preset" data-amount="500" onclick="setRechargeAmount(500)">¥500</button>
+                </div>
+                <div class="form-group">
+                    <label>自定义金额</label>
+                    <input type="number" id="recharge-amount" class="form-control" value="100" min="1" max="10000" step="0.01">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="hideModal('recharge-modal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmRecharge()">确认充值</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Purchase Modal -->
+    <div class="modal-overlay" id="purchase-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>确认购买</h3>
+                <button class="modal-close" onclick="hideModal('purchase-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="purchase-alert"></div>
+                <input type="hidden" id="purchase-plan-id">
+                <p style="font-size:15px;margin-bottom:4px"><strong id="purchase-plan-name"></strong></p>
+                <p style="color:#666;font-size:13px;margin-bottom:16px" id="purchase-plan-desc"></p>
+                <p style="font-size:20px;color:#ff4d4f;font-weight:bold;margin-bottom:16px" id="purchase-plan-price"></p>
+                <div class="form-group">
+                    <label>车牌号</label>
+                    <input type="text" id="purchase-plate" class="form-control" placeholder="请输入车牌号（如京A12345）" maxlength="10">
+                </div>
+                <p style="font-size:12px;color:#999">费用将从您的余额中扣除</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-default" onclick="hideModal('purchase-modal')">取消</button>
+                <button class="btn btn-primary" onclick="confirmPurchase()">确认购买</button>
             </div>
         </div>
     </div>

@@ -74,7 +74,7 @@ add_custom_command(TARGET smart_parking POST_BUILD
 if(WIN32)
     add_custom_command(TARGET smart_parking POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${MYSQL_LIB_DIR}/../bin/libmysql.dll"
+            "${MYSQL_LIB_DIR}/libmysql.dll"
             $<TARGET_FILE_DIR:smart_parking>
     )
 endif()

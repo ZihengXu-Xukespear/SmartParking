@@ -7,20 +7,18 @@ public:
     std::string getPrefix() const override { return "/api/user"; }
 
     void registerRoutes(crow::SimpleApp& app) override {
-        // List users
-        CROW_ROUTE(app, "/api/user/list").methods("GET"_method)([]() {
+        CROW_ROUTE(app, "/api/user/list").methods("GET"_method)([](const crow::request& req) {
+            if (!BaseController::checkPermission(req, Permissions::USER_VIEW))
+                return BaseController::errorResponse(403, "权限不足");
             auto users = UserService::instance().listUsers();
             crow::json::wvalue res;
-            std::vector<crow::json::wvalue> arr;
-            for (auto& u : users) {
-                arr.push_back(u.serialize());
-            }
-            res["users"] = std::move(arr);
+            res["users"] = BaseController::toJsonArray(users);
             return crow::response(res);
         });
 
-        // Add user
         CROW_ROUTE(app, "/api/user/add").methods("POST"_method)([](const crow::request& req) {
+            if (!BaseController::checkPermission(req, Permissions::USER_MANAGE))
+                return BaseController::errorResponse(403, "权限不足");
             auto body = BaseController::parseBody(req);
             if (!body) return BaseController::errorResponse(400, "Invalid JSON");
 
@@ -37,20 +35,23 @@ public:
             return BaseController::successResponse("添加成功");
         });
 
-        // Update user
         CROW_ROUTE(app, "/api/user/update").methods("PUT"_method)([](const crow::request& req) {
+            if (!BaseController::checkPermission(req, Permissions::USER_MANAGE))
+                return BaseController::errorResponse(403, "权限不足");
             auto body = BaseController::parseBody(req);
             if (!body) return BaseController::errorResponse(400, "Invalid JSON");
 
             int id = body["id"].i();
+            std::string username = body["username"].s();
             std::string telephone = body["telephone"].s();
             std::string truename = body["truename"].s();
-            std::string role = body["role"].s();
+            std::string newRole = body.has("role") ? std::string(body["role"].s()) : std::string("user");
+            if ((newRole == "root" || newRole == "admin") && !BaseController::isRoot(req))
+                return BaseController::errorResponse(403, "只有 root 可以授予管理员角色");
 
-            if (!UserService::instance().updateUser(id, telephone, truename, role))
+            if (!UserService::instance().updateUser(id, username, telephone, truename, newRole))
                 return BaseController::errorResponse(400, "更新失败");
 
-            // Update password if provided
             if (body.has("password") && std::string(body["password"].s()).size() > 0) {
                 UserService::instance().updateUserPassword(id, body["password"].s());
             }
@@ -58,8 +59,13 @@ public:
             return BaseController::successResponse("更新成功");
         });
 
-        // Delete user
-        CROW_ROUTE(app, "/api/user/<int>").methods("DELETE"_method)([](int id) {
+        CROW_ROUTE(app, "/api/user/<int>").methods("DELETE"_method)([](const crow::request& req, int id) {
+            if (!BaseController::checkPermission(req, Permissions::USER_MANAGE))
+                return BaseController::errorResponse(403, "权限不足");
+            // Prevent self-deletion
+            auto auth = BaseController::authenticate(req);
+            if (auth.first == id)
+                return BaseController::errorResponse(403, "不能删除自己的账号");
             if (!UserService::instance().deleteUser(id))
                 return BaseController::errorResponse(400, "删除失败");
             return BaseController::successResponse("删除成功");

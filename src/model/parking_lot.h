@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include "base_model.h"
+#include "../config.h"
 
 class ParkingLot : public BaseModel {
 public:
@@ -24,6 +25,7 @@ public:
         j["P_reserve_count"] = P_reserve_count;
         j["P_available_count"] = P_total_count - P_current_count - P_reserve_count;
         j["P_fee"] = P_fee;
+        j["notice_expire_minutes"] = AppConfig::instance().notice_expire_minutes;
         return j;
     }
 };
