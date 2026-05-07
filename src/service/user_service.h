@@ -13,7 +13,7 @@ public:
     }
 
     std::vector<User> listUsers() {
-        return list("SELECT id,username,telephone,truename,role,created_at FROM USER ORDER BY id");
+        return list("SELECT id,username,telephone,truename,role,balance,created_at FROM USER ORDER BY id");
     }
 
     bool addUser(const User& user) {
@@ -31,12 +31,14 @@ public:
         return executeQuery(mysql, sql);
     }
 
-    bool updateUser(int id, const std::string& telephone, const std::string& truename, const std::string& role) {
+    bool updateUser(int id, const std::string& username, const std::string& telephone,
+                    const std::string& truename, const std::string& role) {
         auto conn = getConnection();
         if (!conn) return false;
         MYSQL* mysql = conn->get();
 
-        std::string sql = "UPDATE USER SET telephone='" + escape(mysql, telephone) +
+        std::string sql = "UPDATE USER SET username='" + escape(mysql, username) +
+            "', telephone='" + escape(mysql, telephone) +
             "', truename='" + escape(mysql, truename) +
             "', role='" + escape(mysql, role) +
             "' WHERE id=" + std::to_string(id);
@@ -66,7 +68,8 @@ protected:
         u.telephone = row[2] ? row[2] : "";
         u.truename = row[3] ? row[3] : "";
         u.role = row[4] ? row[4] : "user";
-        u.created_at = row[5] ? row[5] : "";
+        u.balance = row[5] ? std::stod(row[5]) : 0.0;
+        u.created_at = row[6] ? row[6] : "";
         return u;
     }
 

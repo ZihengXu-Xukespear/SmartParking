@@ -7,7 +7,8 @@
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-    <div class="init-page">
+    <!-- Not initialized: show init form -->
+    <div class="init-page" id="page-init">
         <div class="init-container">
             <h2>Smart Parking 系统初始化</h2>
             <p class="subtitle">首次使用请配置数据库连接和停车场信息</p>
@@ -68,6 +69,46 @@
             <button class="btn btn-primary btn-block btn-lg" onclick="handleInit()" id="init-btn">初始化系统</button>
         </div>
     </div>
+
+    <!-- Already initialized: show info + re-init option -->
+    <div class="init-page" id="page-reinit" style="display:none">
+        <div class="init-container">
+            <h2>系统已初始化</h2>
+            <p class="subtitle" id="reinit-parking-name"></p>
+            <div id="reinit-alert-box"></div>
+
+            <div class="card" style="text-align:center;padding:30px">
+                <p style="font-size:16px;margin-bottom:20px">系统已完成初始化，正常使用请前往登录</p>
+                <a href="/index.html" class="btn btn-primary btn-lg" style="margin-bottom:30px">前往登录</a>
+
+                <hr style="margin:20px 0;border-color:#eee">
+
+                <p style="color:#ff4d4f;font-weight:bold;margin-bottom:16px">
+                    ⚠ 重新初始化将覆盖现有数据库
+                </p>
+                <p style="font-size:13px;color:#666;margin-bottom:16px">
+                    此操作需要 root 管理员权限验证
+                </p>
+
+                <div class="form-group">
+                    <label>Root 用户名</label>
+                    <input type="text" id="reinit-root-user" class="form-control" value="root" style="text-align:center;width:200px;margin:0 auto">
+                </div>
+                <div class="form-group">
+                    <label>Root 密码</label>
+                    <input type="password" id="reinit-root-pass" class="form-control" placeholder="请输入 root 密码" style="text-align:center;width:200px;margin:0 auto">
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="handleRootLogin()" id="reinit-login-btn">Root 验证</button>
+                <div id="reinit-form-area" style="display:none;margin-top:20px">
+                    <p style="color:#52c41a;font-weight:bold;margin-bottom:12px">验证通过</p>
+                    <button class="btn btn-danger" onclick="handleForceReinit()" id="reinit-force-btn">
+                        确认重新初始化（将清空所有数据）
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/common.js"></script>
     <script src="/js/init.js"></script>
 </body>

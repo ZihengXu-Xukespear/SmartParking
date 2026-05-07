@@ -20,6 +20,9 @@ async function handleLogin() {
     if (res && res.ok) {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
+        if (res.data.permissions) {
+            localStorage.setItem('permissions', JSON.stringify(res.data.permissions));
+        }
         showSuccess('alert-box', '登录成功，正在跳转...');
         setTimeout(() => window.location.href = '/dashboard.html', 800);
     } else {

@@ -33,6 +33,31 @@ public:
     }
 };
 
+class PassPlan : public BaseModel {
+public:
+    int id = 0;
+    std::string plan_name;
+    int duration_days = 30;
+    double price = 300.00;
+    std::string description;
+    bool is_active = true;
+
+    int getId() const override { return id; }
+    void setId(int id_) override { id = id_; }
+    std::string getTableName() const override { return "PASS_PLAN"; }
+
+    crow::json::wvalue serialize() const override {
+        crow::json::wvalue j;
+        j["id"] = id;
+        j["plan_name"] = plan_name;
+        j["duration_days"] = duration_days;
+        j["price"] = price;
+        j["description"] = description;
+        j["is_active"] = is_active;
+        return j;
+    }
+};
+
 class MonthlyPass : public BaseModel {
 public:
     int id = 0;
@@ -42,6 +67,8 @@ public:
     std::string end_date;
     double fee = 0.0;
     bool is_active = true;
+    int user_id = 0;
+    int plan_id = 0;
 
     int getId() const override { return id; }
     void setId(int id_) override { id = id_; }
@@ -56,6 +83,8 @@ public:
         j["end_date"] = end_date;
         j["fee"] = fee;
         j["is_active"] = is_active;
+        j["user_id"] = user_id;
+        j["plan_id"] = plan_id;
         return j;
     }
 };

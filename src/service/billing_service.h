@@ -49,7 +49,8 @@ public:
             "', free_minutes=" + std::to_string(rule.free_minutes) +
             ", hourly_rate=" + std::to_string(rule.hourly_rate) +
             ", max_daily_fee=" + std::to_string(rule.max_daily_fee) +
-            ", description='" + escape(mysql, rule.description) +
+            ", tier_config='" + escape(mysql, rule.tier_config) +
+            "', description='" + escape(mysql, rule.description) +
             "', is_active=" + std::to_string(rule.is_active ? 1 : 0) +
             " WHERE id=" + std::to_string(id);
         return executeQuery(mysql, sql);
@@ -60,7 +61,7 @@ public:
         auto conn = getConnection();
         if (!conn) return passes;
 
-        if (mysql_query(conn->get(), "SELECT id,license_plate,pass_type,start_date,end_date,fee,is_active FROM MONTHLY_PASS ORDER BY id") != 0)
+        if (mysql_query(conn->get(), "SELECT id,license_plate,pass_type,start_date,end_date,fee,is_active,user_id,plan_id FROM MONTHLY_PASS ORDER BY id") != 0)
             return passes;
         MYSQL_RES* res = mysql_store_result(conn->get());
         if (!res) return passes;
@@ -75,6 +76,8 @@ public:
             p.end_date = row[4] ? row[4] : "";
             p.fee = row[5] ? std::stod(row[5]) : 0.0;
             p.is_active = row[6] ? std::stoi(row[6]) == 1 : true;
+            p.user_id = row[7] ? std::stoi(row[7]) : 0;
+            p.plan_id = row[8] ? std::stoi(row[8]) : 0;
             passes.push_back(p);
         }
         mysql_free_result(res);
@@ -86,12 +89,26 @@ public:
         if (!conn) return false;
         MYSQL* mysql = conn->get();
 
-        std::string sql = "INSERT INTO MONTHLY_PASS (license_plate,pass_type,start_date,end_date,fee,is_active) VALUES ('" +
+        std::string sql = "INSERT INTO MONTHLY_PASS (license_plate,pass_type,start_date,end_date,fee,is_active,user_id,plan_id) VALUES ('" +
             escape(mysql, pass.license_plate) + "','" +
             escape(mysql, pass.pass_type) + "','" +
             escape(mysql, pass.start_date) + "','" +
             escape(mysql, pass.end_date) + "'," +
-            std::to_string(pass.fee) + ",1)";
+            std::to_string(pass.fee) + ",1," +
+            std::to_string(pass.user_id) + "," + std::to_string(pass.plan_id) + ")";
+        return executeQuery(mysql, sql);
+    }
+
+    bool updateMonthlyPass(int id, const MonthlyPass& pass) {
+        auto conn = getConnection();
+        if (!conn) return false;
+        MYSQL* mysql = conn->get();
+        std::string sql = "UPDATE MONTHLY_PASS SET license_plate='" + escape(mysql, pass.license_plate) +
+            "', pass_type='" + escape(mysql, pass.pass_type) +
+            "', start_date='" + escape(mysql, pass.start_date) +
+            "', end_date='" + escape(mysql, pass.end_date) +
+            "', fee=" + std::to_string(pass.fee) +
+            " WHERE id=" + std::to_string(id);
         return executeQuery(mysql, sql);
     }
 

@@ -36,29 +36,22 @@ public:
         return result;
     }
 
-    // 验证车牌号格式
+    // 验证车牌号格式（统一的校验逻辑，所有校验入口应复用此方法）
     static bool validatePlate(const std::string& plate) {
-        if (plate.size() < 7 || plate.size() > 8) return false;
-        // UTF-8 Chinese province abbreviation (3 bytes) + letter + 5 alphanumeric
-        // Minimum valid: 3 (中文) + 1 (字母) + 5 (数字/字母) = 9 bytes for 7-char plate
-        //                3 (中文) + 1 (字母) + 6 (数字/字母) = 10 bytes for 8-char plate (新能源)
+        // UTF-8 Chinese province abbreviation (3 bytes) + letter (1 byte) + 5-6 alphanumeric
+        // Standard plate: 京A12345 = 3+1+5 = 9 bytes
+        // New energy plate: 京A123456 = 3+1+6 = 10 bytes
         if (plate.size() < 9 || plate.size() > 10) return false;
 
         const std::string provinces = "京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁";
-        bool found = false;
         for (size_t i = 0; i < provinces.size(); i += 3) {
             if (plate.substr(0, 3) == provinces.substr(i, 3)) {
-                found = true;
-                break;
+                // Province letter (A-Z) at byte index 3
+                if (plate[3] >= 'A' && plate[3] <= 'Z')
+                    return true;
             }
         }
-        if (!found) return false;
-
-        // Second char should be a letter (A-Z)
-        char second = plate[3];
-        if (second < 'A' || second > 'Z') return false;
-
-        return true;
+        return false;
     }
 
 private:

@@ -8,6 +8,13 @@
 #include "controller/user_controller.h"
 #include "controller/reservation_controller.h"
 #include "controller/plate_controller.h"
+#include "controller/balance_controller.h"
+#include "controller/pass_plan_controller.h"
+#include "controller/blacklist_controller.h"
+#include "controller/report_controller.h"
+#include "controller/bulletin_controller.h"
+#include "permissions.h"
+#include "service/auth_service.h"
 
 #include <iostream>
 #include <fstream>
@@ -21,8 +28,7 @@
 namespace fs = std::filesystem;
 
 std::string findConfigPath() {
-    // Look for config file in executable directory, then in project root
-    std::vector<std::string> paths = {
+    static const std::string paths[] = {
         "config/db_config.json",
         "../config/db_config.json"
     };
@@ -30,6 +36,17 @@ std::string findConfigPath() {
         if (fs::exists(p)) return p;
     }
     return "";
+}
+
+static std::string mimeType(const std::string& filename) {
+    if (filename.find(".html") != std::string::npos) return "text/html; charset=utf-8";
+    if (filename.find(".css") != std::string::npos) return "text/css; charset=utf-8";
+    if (filename.find(".js") != std::string::npos) return "application/javascript; charset=utf-8";
+    if (filename.find(".png") != std::string::npos) return "image/png";
+    if (filename.find(".jpg") != std::string::npos || filename.find(".jpeg") != std::string::npos)
+        return "image/jpeg";
+    if (filename.find(".ico") != std::string::npos) return "image/x-icon";
+    return "application/octet-stream";
 }
 
 void setupStaticFiles(crow::SimpleApp& app) {
@@ -42,16 +59,7 @@ void setupStaticFiles(crow::SimpleApp& app) {
 
         std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         crow::response res(content);
-
-        if (filename.find(".html") != std::string::npos) res.set_header("Content-Type", "text/html; charset=utf-8");
-        else if (filename.find(".css") != std::string::npos) res.set_header("Content-Type", "text/css; charset=utf-8");
-        else if (filename.find(".js") != std::string::npos) res.set_header("Content-Type", "application/javascript; charset=utf-8");
-        else if (filename.find(".png") != std::string::npos) res.set_header("Content-Type", "image/png");
-        else if (filename.find(".jpg") != std::string::npos || filename.find(".jpeg") != std::string::npos)
-            res.set_header("Content-Type", "image/jpeg");
-        else if (filename.find(".ico") != std::string::npos) res.set_header("Content-Type", "image/x-icon");
-        else res.set_header("Content-Type", "application/octet-stream");
-
+        res.set_header("Content-Type", mimeType(filename));
         return res;
     });
 
@@ -64,11 +72,7 @@ void setupStaticFiles(crow::SimpleApp& app) {
 
         std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
         crow::response res(content);
-
-        if (filename.find(".css") != std::string::npos) res.set_header("Content-Type", "text/css; charset=utf-8");
-        else if (filename.find(".js") != std::string::npos) res.set_header("Content-Type", "application/javascript; charset=utf-8");
-        else res.set_header("Content-Type", "application/octet-stream");
-
+        res.set_header("Content-Type", mimeType(filename));
         return res;
     });
 
@@ -113,21 +117,27 @@ int main() {
         }
     }
 
-    // Setup static file serving
-    setupStaticFiles(app);
-
-    // Init endpoint - always available
+    // Init status endpoint - always public (frontend needs to check state)
     CROW_ROUTE(app, "/api/init/status").methods("GET"_method)([]() {
         crow::json::wvalue res;
         res["initialized"] = AppConfig::instance().initialized;
         if (AppConfig::instance().initialized) {
             res["parking_name"] = AppConfig::instance().parking_name;
             res["server_port"] = AppConfig::instance().server_port;
+            res["notice_expire_minutes"] = AppConfig::instance().notice_expire_minutes;
         }
-        return crow::response(res);
+        crow::response r(res);
+        r.set_header("Content-Type", "application/json; charset=utf-8");
+        return r;
     });
 
+    // Init database endpoint - root only if already initialized, public if fresh
     CROW_ROUTE(app, "/api/init/database").methods("POST"_method)([configPath](const crow::request& req) {
+        // If already initialized, require root permission
+        if (AppConfig::instance().initialized) {
+            if (!BaseController::isRoot(req))
+                return BaseController::errorResponse(403, "系统已初始化，只有 root 可以重新初始化");
+        }
         auto body = crow::json::load(req.body);
         if (!body) return crow::response(400, "{\"error\":\"Invalid JSON\"}");
 
@@ -155,7 +165,7 @@ int main() {
             return crow::response(400, "{\"error\":\"创建数据表失败\"}");
 
         // Save config
-        cfg.save("config/db_config.json");
+        cfg.save(cfg.config_file);
 
         return crow::response(200, "{\"message\":\"数据库初始化成功\"}");
     });
@@ -168,9 +178,17 @@ int main() {
     controllers.push_back(std::make_unique<UserController>());
     controllers.push_back(std::make_unique<ReservationController>());
     controllers.push_back(std::make_unique<PlateController>());
+    controllers.push_back(std::make_unique<BalanceController>());
+    controllers.push_back(std::make_unique<PassPlanController>());
+    controllers.push_back(std::make_unique<BlacklistController>());
+    controllers.push_back(std::make_unique<ReportController>());
+    controllers.push_back(std::make_unique<BulletinController>());
     for (auto& ctrl : controllers) {
         ctrl->registerRoutes(app);
     }
+
+    // Setup static file serving (must be after API routes to avoid conflicts)
+    setupStaticFiles(app);
 
     // CORS middleware - add to all responses
     app.loglevel(crow::LogLevel::Info);

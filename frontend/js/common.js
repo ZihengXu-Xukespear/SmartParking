@@ -17,9 +17,11 @@ async function request(url, options = {}) {
         const resp = await fetch(API_BASE + url, { ...options, headers });
         const data = await resp.json();
 
-        if (resp.status === 401) {
+        // Only redirect on 401 if already logged in (token exists) and not a login attempt
+        if (resp.status === 401 && token && !url.includes('/api/auth/login')) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
+            localStorage.removeItem('permissions');
             window.location.href = '/index.html';
             return null;
         }
@@ -99,6 +101,17 @@ function formatDate(d) {
     return d ? d.substring(0, 10) : '-';
 }
 
+// HTML 转义
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // 格式化金额
 function formatFee(fee) {
     if (fee === null || fee === undefined) return '-';
@@ -112,11 +125,22 @@ function setActiveNav(id) {
     if (target) target.classList.add('active');
 }
 
+// Permission checking
+function getUserPermissions() {
+    const perms = localStorage.getItem('permissions');
+    return perms ? JSON.parse(perms) : [];
+}
+
+function hasPerm(permission) {
+    return getUserPermissions().includes(permission);
+}
+
 // 退出登录
 async function logout() {
     await post('/api/auth/logout', {});
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('permissions');
     window.location.href = '/index.html';
 }
 
@@ -130,12 +154,20 @@ function initSidebar() {
     const avatarEl = document.querySelector('.user-avatar');
 
     if (nameEl) nameEl.textContent = user.truename || user.username;
-    if (roleEl) roleEl.textContent = user.role === 'admin' ? '管理员' : '普通用户';
+    if (roleEl) {
+        const roleLabels = { root: '超级管理员', admin: '管理员', operator: '操作员', user: '普通用户' };
+        roleEl.textContent = roleLabels[user.role] || '普通用户';
+    }
     if (avatarEl) avatarEl.textContent = (user.truename || user.username).charAt(0).toUpperCase();
 
-    // Hide admin nav for non-admin users
-    if (user.role !== 'admin') {
+    // Hide admin nav if user doesn't have user management permission
+    if (!hasPerm('user.view')) {
         const adminNav = document.getElementById('nav-admin');
         if (adminNav) adminNav.style.display = 'none';
+    }
+    // Hide vehicle nav if user doesn't have vehicle query permission
+    if (!hasPerm('vehicle.query')) {
+        const vehicleNav = document.getElementById('nav-vehicles');
+        if (vehicleNav) vehicleNav.style.display = 'none';
     }
 }
