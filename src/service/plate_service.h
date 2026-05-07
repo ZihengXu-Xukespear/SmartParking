@@ -39,17 +39,21 @@ public:
     // 验证车牌号格式（统一的校验逻辑，所有校验入口应复用此方法）
     static bool validatePlate(const std::string& plate) {
         // UTF-8 Chinese province abbreviation (3 bytes) + letter (1 byte) + 5-6 alphanumeric
-        // Standard plate: 京A12345 = 3+1+5 = 9 bytes
-        // New energy plate: 京A123456 = 3+1+6 = 10 bytes
+        // Standard plate: 京A12345 = 3+1+5 = 9 bytes, 7 visible chars
+        // New energy plate: 京A123456 = 3+1+6 = 10 bytes, 8 visible chars
         if (plate.size() < 9 || plate.size() > 10) return false;
 
         const std::string provinces = "京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁";
         for (size_t i = 0; i < provinces.size(); i += 3) {
-            if (plate.substr(0, 3) == provinces.substr(i, 3)) {
-                // Province letter (A-Z) at byte index 3
-                if (plate[3] >= 'A' && plate[3] <= 'Z')
-                    return true;
+            if (plate.substr(0, 3) != provinces.substr(i, 3)) continue;
+            // Province letter (A-Z) at byte index 3
+            if (plate[3] < 'A' || plate[3] > 'Z') return false;
+            // Remaining characters must be alphanumeric (A-Z, 0-9)
+            for (size_t j = 4; j < plate.size(); j++) {
+                if (!std::isalnum(static_cast<unsigned char>(plate[j])))
+                    return false;
             }
+            return true;
         }
         return false;
     }

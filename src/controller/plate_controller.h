@@ -34,7 +34,7 @@ public:
             crow::json::wvalue res;
             res["valid"] = valid;
             res["plate"] = plate;
-            if (!valid) res["message"] = "车牌号格式不正确，应为：省份汉字+字母+5-6位数字/字母";
+            if (!valid) res["message"] = "车牌号格式不正确，格式：省份简称+大写字母+5~6位字母数字（如 京A12345）";
             return crow::response(res);
         });
     }

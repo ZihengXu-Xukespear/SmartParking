@@ -83,7 +83,7 @@
                         <div class="form-group">
                             <label>车牌号</label>
                             <div class="plate-input-group">
-                                <input type="text" id="plate-input" class="form-control" placeholder="例: 京A12345" maxlength="10">
+                                <input type="text" id="plate-input" class="form-control" placeholder="例: 京A12345" maxlength="8">
                                 <button class="btn btn-default btn-sm" onclick="handlePlateRecognize()" id="btn-plate-recognize" title="车牌识别(预留)">识别</button>
                             </div>
                         </div>
@@ -121,7 +121,7 @@
                         <div id="my-vehicles-alert"></div>
                         <div id="my-vehicles-container">
                             <div class="form-row" style="gap:6px;margin-bottom:10px">
-                                <input type="text" id="my-vehicle-input" class="form-control" placeholder="添加车牌号（如京A12345）" maxlength="10" style="flex:1;padding:6px 10px;font-size:13px">
+                                <input type="text" id="my-vehicle-input" class="form-control" placeholder="添加车牌号（如京A12345）" maxlength="8" style="flex:1;padding:6px 10px;font-size:13px">
                                 <button class="btn btn-primary btn-sm" onclick="addMyVehicle()">添加</button>
                             </div>
                             <div id="my-vehicles-list" style="max-height:200px;overflow-y:auto"><p style="color:#999;font-size:13px">暂无车辆，请添加您的车牌号</p></div>
@@ -238,7 +238,7 @@
                 <p style="font-size:20px;color:#ff4d4f;font-weight:bold;margin-bottom:16px" id="purchase-plan-price"></p>
                 <div class="form-group">
                     <label>车牌号</label>
-                    <input type="text" id="purchase-plate" class="form-control" placeholder="请输入车牌号（如京A12345）" maxlength="10">
+                    <input type="text" id="purchase-plate" class="form-control" placeholder="请输入车牌号（如京A12345）" maxlength="8">
                 </div>
                 <p style="font-size:12px;color:#999">费用将从您的余额中扣除</p>
             </div>
