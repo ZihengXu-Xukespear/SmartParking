@@ -31,6 +31,11 @@ public:
             if (res) mysql_free_result(res);
         }
 
+        // Clean up expired/completed reservation for this plate to allow new reservation
+        // (the UNIQUE index prevents duplicate license_plate rows)
+        sql = "DELETE FROM RESERVATION WHERE license_plate=" + quote(mysql, plate) + " AND status != 'active'";
+        mysql_query(mysql, sql.c_str());
+
         // Check capacity and get fee
         sql = "SELECT P_total_count, P_current_count, P_reserve_count, P_fee FROM PARKING_LOT WHERE P_name=" +
             quote(mysql, P_name);

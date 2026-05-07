@@ -1,6 +1,7 @@
 #pragma once
 #include "crud_service.h"
 #include "../model/billing.h"
+#include "plate_service.h"
 
 class PassPlanService : public CrudService<PassPlan> {
 public:
@@ -46,6 +47,7 @@ public:
 
     // Purchase: deduct balance and create monthly pass (transactional)
     bool purchase(int userId, int planId, const std::string& licensePlate, std::string& error) {
+        if (!PlateService::validatePlate(licensePlate)) { error = "车牌号格式不正确"; return false; }
         auto conn = getConnection();
         if (!conn) { error = "数据库连接失败"; return false; }
         MYSQL* mysql = conn->get();

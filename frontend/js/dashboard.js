@@ -196,6 +196,14 @@ async function handleCheckIn() {
     const billingSel = document.getElementById('billing-type');
     const billingType = (billingSel && billingSel.style.display !== 'none') ? billingSel.value : 'standard';
     if (!plate) { showError('vehicle-alert', '请输入车牌号'); return; }
+
+    // Validate plate format
+    const valRes = await post('/api/plate/validate', { license_plate: plate });
+    if (valRes && valRes.ok && !valRes.data.valid) {
+        showError('vehicle-alert', valRes.data.message || '车牌号格式不正确');
+        return;
+    }
+
     const res = await post('/api/vehicle/checkin', { license_plate: plate, billing_type: billingType });
     if (res && res.ok) {
         showSuccess('vehicle-alert', `车辆 ${plate} 入库成功！`);
@@ -207,6 +215,14 @@ async function handleCheckIn() {
 async function handleCheckOut() {
     const plate = document.getElementById('plate-input').value.trim();
     if (!plate) { showError('vehicle-alert', '请输入车牌号'); return; }
+
+    // Validate plate format
+    const valRes = await post('/api/plate/validate', { license_plate: plate });
+    if (valRes && valRes.ok && !valRes.data.valid) {
+        showError('vehicle-alert', valRes.data.message || '车牌号格式不正确');
+        return;
+    }
+
     const res = await post('/api/vehicle/checkout', { license_plate: plate });
     if (res && res.ok) {
         showSuccess('vehicle-alert', `车辆 ${plate} 出库成功！费用: ${formatFee(res.data.fee)}。请在10分钟内驶离`);

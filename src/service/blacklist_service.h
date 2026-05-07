@@ -1,6 +1,7 @@
 #pragma once
 #include "crud_service.h"
 #include "../model/blacklist.h"
+#include "plate_service.h"
 
 class BlacklistService : public CrudService<BlacklistEntry> {
 public:
@@ -29,6 +30,7 @@ public:
     }
 
     bool add(const std::string& plate, const std::string& reason, std::string& error) {
+        if (!PlateService::validatePlate(plate)) { error = "车牌号格式不正确"; return false; }
         auto conn = getConnection();
         if (!conn) { error = "数据库连接失败"; return false; }
         MYSQL* mysql = conn->get();
