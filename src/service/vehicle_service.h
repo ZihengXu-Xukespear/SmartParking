@@ -22,8 +22,10 @@ public:
         if (!validatePlate(plate)) { error = "车牌号格式不正确"; return false; }
 
         // Blacklist check (quick, outside transaction — rare change)
-        if (BlacklistService::instance().isBlacklisted(plate)) {
+        std::string blReason;
+        if (BlacklistService::instance().isBlacklisted(plate, &blReason)) {
             error = "该车辆已被列入黑名单，禁止入库";
+            BlacklistService::instance().logInterception(plate, blReason);
             return false;
         }
 
