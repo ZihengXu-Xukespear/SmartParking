@@ -5,7 +5,38 @@
 #include <mutex>
 #include <vector>
 #include <queue>
+#include <condition_variable>
+#include <chrono>
 #include "../config.h"
+
+// RAII transaction guard — disables autocommit, rolls back if not committed
+class Transaction {
+public:
+    explicit Transaction(MYSQL* mysql) : mysql_(mysql), committed_(false) {
+        if (mysql_) mysql_autocommit(mysql_, 0);
+    }
+    ~Transaction() {
+        if (mysql_ && !committed_) {
+            mysql_rollback(mysql_);
+            mysql_autocommit(mysql_, 1);
+        }
+    }
+    Transaction(const Transaction&) = delete;
+    Transaction& operator=(const Transaction&) = delete;
+    Transaction(Transaction&& other) noexcept : mysql_(other.mysql_), committed_(other.committed_) {
+        other.mysql_ = nullptr;
+    }
+    bool commit() {
+        if (!mysql_) return false;
+        committed_ = true;
+        bool ok = mysql_commit(mysql_) == 0;
+        mysql_autocommit(mysql_, 1);
+        return ok;
+    }
+private:
+    MYSQL* mysql_;
+    bool committed_;
+};
 
 class MySQLPool {
 public:
@@ -27,7 +58,7 @@ public:
             if (!conn) return false;
             setupConnectionOptions(conn);
             if (!mysql_real_connect(conn, cfg.host.c_str(), cfg.user.c_str(),
-                cfg.password.c_str(), cfg.database.c_str(), cfg.port, nullptr, CLIENT_MULTI_STATEMENTS)) {
+                cfg.password.c_str(), cfg.database.c_str(), cfg.port, nullptr, 0)) {
                 last_error_ = mysql_error(conn);
                 mysql_close(conn);
                 return false;

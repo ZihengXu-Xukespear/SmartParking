@@ -233,6 +233,7 @@ select.form-control { cursor: pointer; }
 .btn-default { background: var(--white); color: var(--text); border: 1px solid var(--border); }
 .btn-default:hover { border-color: var(--primary); color: var(--primary); }
 .btn-sm { padding: 6px 12px; font-size: 13px; }
+.btn-xs { padding: 3px 8px; font-size: 11px; }
 .btn-lg { padding: 12px 28px; font-size: 16px; }
 .btn-block { width: 100%; justify-content: center; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -314,7 +315,9 @@ table tr:hover { background: var(--primary-light); }
     padding: 4px;
 }
 
-.modal-body { padding: 24px; }
+.modal-body { padding: 24px; overflow-y: auto; max-height: 70vh; }
+.modal-body textarea { max-width: 100%; min-width: 100%; box-sizing: border-box; }
+.modal-body .form-control { max-width: 100%; box-sizing: border-box; }
 .modal-footer {
     padding: 16px 24px;
     border-top: 1px solid #f0f0f0;

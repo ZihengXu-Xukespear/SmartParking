@@ -15,6 +15,7 @@
                 <a class="nav-item" id="nav-vehicles" href="/vehicles.html"><span class="icon">&#128663;</span> 车辆信息</a>
                 <a class="nav-item" id="nav-admin" href="/admin.html"><span class="icon">&#128100;</span> 管理页面</a>
                 <a class="nav-item active" id="nav-reservation" href="/reservation.html"><span class="icon">&#128197;</span> 预约管理</a>
+                <a class="nav-item" id="nav-profile" href="/profile.html"><span class="icon">&#128101;</span> 个人中心</a>
             </div>
             <div class="sidebar-footer">
                 <div class="user-info"><div class="user-avatar">U</div><div><div class="user-name">用户</div><div class="user-role">普通用户</div></div></div>
@@ -25,7 +26,7 @@
         <div class="main-content">
             <div class="page-header">
                 <h1>预约管理</h1>
-                <p>预约车位，30分钟内到达有效</p>
+                <p>预约车位，<span id="expire-hint">30</span>分钟内到达有效</p>
             </div>
 
             <div id="alert-box"></div>
@@ -95,7 +96,7 @@
         const user = checkAuth();
         if (user) initSidebar();
 
-        // Load parking status
+        // Load parking status (including expire minutes config)
         async function loadStatus() {
             const res = await get('/api/parking/status');
             if (!res || !res.ok) return;
@@ -105,6 +106,9 @@
             document.getElementById('stat-reserved').textContent = d.P_reserve_count;
             document.getElementById('stat-available').textContent = d.P_available_count;
             document.getElementById('res-parking').value = d.P_name;
+            const expireMin = d.notice_expire_minutes || 30;
+            document.getElementById('expire-hint').textContent = expireMin;
+            window._expireMinutes = expireMin;
         }
 
         // Load reservations
@@ -122,7 +126,8 @@
             }
             tbody.innerHTML = list.map(r => {
                 const created = new Date(r.created_at.replace(' ', 'T'));
-                const expire = new Date(created.getTime() + 30 * 60000);
+                const expireMin = window._expireMinutes || 30;
+                const expire = new Date(created.getTime() + expireMin * 60000);
                 const now = new Date();
                 const remain = Math.max(0, Math.floor((expire - now) / 60000));
                 return `
@@ -143,9 +148,19 @@
             const plate = document.getElementById('res-plate').value.trim();
             if (!plate) { showError('alert-box', '请输入车牌号'); return; }
 
+            // Validate plate format
+            const vres = await post('/api/plate/validate', { license_plate: plate });
+            if (vres && vres.ok && !vres.data.valid) {
+                showError('alert-box', vres.data.message || '车牌号格式不正确');
+                return;
+            }
+
+            if (!confirm('预约将从余额中预付首小时费用，预约不可退款。\n\n确定预约车牌 ' + plate + ' 吗？')) return;
+
             const res = await post('/api/reservation/create', { license_plate: plate });
             if (res && res.ok) {
-                showSuccess('alert-box', '预约成功！请在30分钟内到达停车场');
+                const expireMin = window._expireMinutes || 30;
+                showSuccess('alert-box', '预约成功！请在' + expireMin + '分钟内到达，预付费用不退。');
                 document.getElementById('res-plate').value = '';
                 loadReservations();
                 loadStatus();
@@ -156,14 +171,14 @@
 
         // Cancel reservation
         async function cancelReservation(id) {
-            if (!confirm('确定要取消此预约吗？')) return;
+            if (!confirm('确定要取消此预约吗？\n\n预付费用将不予退还。')) return;
             const res = await del('/api/reservation/' + id);
             if (res && res.ok) {
-                showSuccess('alert-box', '预约已取消');
+                showSuccess('alert-box', '预约已取消（预付不退）');
                 loadReservations();
                 loadStatus();
             } else {
-                showError('alert-box', '取消失败');
+                showError('alert-box', res?.data?.error || '取消失败');
             }
         }
 

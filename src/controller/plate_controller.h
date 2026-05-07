@@ -7,8 +7,9 @@ public:
     std::string getPrefix() const override { return "/api/plate"; }
 
     void registerRoutes(crow::SimpleApp& app) override {
-        // Plate recognition (stub)
         CROW_ROUTE(app, "/api/plate/recognize").methods("POST"_method)([](const crow::request& req) {
+            if (!BaseController::checkPermission(req, Permissions::PLATE_RECOGNIZE))
+                return BaseController::errorResponse(403, "权限不足");
             auto result = PlateService::instance().recognize(req.body);
 
             crow::json::wvalue res;
@@ -20,8 +21,10 @@ public:
             return crow::response(res);
         });
 
-        // Validate plate format
         CROW_ROUTE(app, "/api/plate/validate").methods("POST"_method)([](const crow::request& req) {
+            // Format validation is available to all authenticated users
+            if (!BaseController::isAuthenticated(req))
+                return BaseController::errorResponse(401, "请先登录");
             auto body = BaseController::parseBody(req);
             if (!body) return BaseController::errorResponse(400, "Invalid JSON");
 

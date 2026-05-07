@@ -10,6 +10,7 @@ public:
     std::string telephone;
     std::string truename;
     std::string role = "user";
+    double balance = 0.0;
     std::string created_at;
 
     int getId() const override { return id; }
@@ -23,6 +24,7 @@ public:
         j["telephone"] = telephone;
         j["truename"] = truename;
         j["role"] = role;
+        j["balance"] = balance;
         j["created_at"] = created_at;
         return j;
     }

@@ -2,6 +2,7 @@
 #include <string>
 #include "mysql_pool.h"
 #include "../config.h"
+#include "../sha256.h"
 
 class DBInit {
 public:
@@ -35,6 +36,7 @@ public:
             "  telephone VARCHAR(11) NOT NULL,"
             "  truename VARCHAR(255) NOT NULL,"
             "  role VARCHAR(20) DEFAULT 'user',"
+            "  balance DECIMAL(10,2) DEFAULT 0.00,"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
@@ -55,6 +57,8 @@ public:
             "  fee DECIMAL(10,2) DEFAULT NULL,"
             "  location VARCHAR(255) NOT NULL,"
             "  billing_type VARCHAR(20) DEFAULT 'standard',"
+            "  exit_deadline DATETIME DEFAULT NULL,"
+            "  reservation_id INT DEFAULT NULL,"
             "  INDEX idx_plate (license_plate),"
             "  INDEX idx_checkin (check_in_time)"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -63,6 +67,8 @@ public:
             "  id INT PRIMARY KEY AUTO_INCREMENT,"
             "  license_plate VARCHAR(20) NOT NULL,"
             "  P_name VARCHAR(255) NOT NULL,"
+            "  prepaid DECIMAL(10,2) DEFAULT 0.00,"
+            "  status VARCHAR(20) DEFAULT 'active',"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
             "  UNIQUE INDEX idx_plate (license_plate)"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
@@ -79,6 +85,33 @@ public:
             "  is_active TINYINT DEFAULT 1"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
+            "CREATE TABLE IF NOT EXISTS PASS_PLAN ("
+            "  id INT PRIMARY KEY AUTO_INCREMENT,"
+            "  plan_name VARCHAR(100) NOT NULL,"
+            "  duration_days INT NOT NULL DEFAULT 30,"
+            "  price DECIMAL(10,2) NOT NULL DEFAULT 300.00,"
+            "  description TEXT DEFAULT NULL,"
+            "  is_active TINYINT DEFAULT 1"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+            "CREATE TABLE IF NOT EXISTS BALANCE_RECORD ("
+            "  id INT PRIMARY KEY AUTO_INCREMENT,"
+            "  user_id INT NOT NULL,"
+            "  amount DECIMAL(10,2) NOT NULL,"
+            "  type VARCHAR(20) NOT NULL,"
+            "  description VARCHAR(255) DEFAULT '',"
+            "  balance_after DECIMAL(10,2) NOT NULL,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  INDEX idx_user (user_id)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+            "CREATE TABLE IF NOT EXISTS VEHICLE_BLACKLIST ("
+            "  id INT PRIMARY KEY AUTO_INCREMENT,"
+            "  license_plate VARCHAR(20) NOT NULL UNIQUE,"
+            "  reason VARCHAR(255) DEFAULT '',"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
             "CREATE TABLE IF NOT EXISTS MONTHLY_PASS ("
             "  id INT PRIMARY KEY AUTO_INCREMENT,"
             "  license_plate VARCHAR(20) NOT NULL,"
@@ -87,6 +120,8 @@ public:
             "  end_date DATE NOT NULL,"
             "  fee DECIMAL(10,2) NOT NULL,"
             "  is_active TINYINT DEFAULT 1,"
+            "  user_id INT DEFAULT 0,"
+            "  plan_id INT DEFAULT 0,"
             "  INDEX idx_plate (license_plate)"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         };
@@ -102,6 +137,14 @@ public:
             "('阶梯计费','tiered',30,5.00,60.00,'前2小时每小时5元，2-4小时每小时3元，4小时以上每小时2元',0),"
             "('会员计费','member',60,3.00,30.00,'会员享受60分钟免费，之后每小时3元，每日封顶30元',0),"
             "('特殊车辆','special',1440,0.00,0.00,'军车、警车、消防车等特殊车辆免费',0)"
+        );
+
+        // Insert default pass plans
+        mysql_query(mysql,
+            "INSERT IGNORE INTO PASS_PLAN (plan_name,duration_days,price,description,is_active) VALUES "
+            "('月卡',30,300.00,'30天畅停，适合短期需求',1),"
+            "('季卡',90,800.00,'90天优惠，每天不到9元',1),"
+            "('年卡',365,2880.00,'全年无忧，每天不到8元',1)"
         );
 
         // Insert default parking lot
@@ -125,13 +168,32 @@ public:
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = GREATEST(P_reserve_count - 1, 0) WHERE P_name = OLD.P_name; END"
         ) != 0) return false;
 
+        // Create default root admin if no root exists
+        mysql_query(mysql, "SELECT COUNT(*) FROM USER WHERE role='root'");
+        MYSQL_RES* adminRes = mysql_store_result(mysql);
+        bool hasAdmin = false;
+        if (adminRes) {
+            MYSQL_ROW adminRow = mysql_fetch_row(adminRes);
+            if (adminRow && std::stoi(adminRow[0]) > 0) hasAdmin = true;
+            mysql_free_result(adminRes);
+        }
+        if (!hasAdmin) {
+            std::string hashed = sha256::hash("admin123");
+            std::string adminSql = "INSERT INTO USER (username,password,telephone,truename,role) VALUES "
+                "('root','" + hashed + "','00000000000','系统管理员','root')";
+            mysql_query(mysql, adminSql.c_str());
+        }
+
         // Enable event scheduler and create cleanup event
         mysql_query(mysql, "SET GLOBAL event_scheduler = ON");
         mysql_query(mysql, "DROP EVENT IF EXISTS clean_expired_reservations");
-        if (mysql_query(mysql,
-            "CREATE EVENT clean_expired_reservations ON SCHEDULE EVERY 1 MINUTE DO "
-            "BEGIN DELETE FROM RESERVATION WHERE created_at < DATE_SUB(NOW(), INTERVAL 30 MINUTE); END"
-        ) != 0) return false;
+        {
+            int expire_min = AppConfig::instance().notice_expire_minutes;
+            std::string eventSql = "CREATE EVENT clean_expired_reservations ON SCHEDULE EVERY 1 MINUTE DO "
+                "BEGIN DELETE FROM RESERVATION WHERE status='active' AND created_at < DATE_SUB(NOW(), INTERVAL " +
+                std::to_string(expire_min) + " MINUTE); END";
+            if (mysql_query(mysql, eventSql.c_str()) != 0) return false;
+        }
 
         return true;
     }

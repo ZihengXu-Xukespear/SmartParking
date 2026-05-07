@@ -8,7 +8,7 @@ public:
     std::string getPrefix() const override { return "/api/auth"; }
 
     void registerRoutes(crow::SimpleApp& app) override {
-        // Login
+        // Login — public
         CROW_ROUTE(app, "/api/auth/login").methods("POST"_method)([](const crow::request& req) {
             auto body = BaseController::parseBody(req);
             if (!body) return BaseController::errorResponse(400, "Invalid JSON");
@@ -27,10 +27,16 @@ public:
             crow::json::wvalue res;
             res["token"] = token;
             res["user"] = user.serialize();
-            return crow::response(res);
+
+            // Include permissions list for frontend
+            res["permissions"] = BaseController::toJsonArray(AuthService::instance().getUserPermissions(token));
+
+            crow::response r(res);
+            r.set_header("Content-Type", "application/json; charset=utf-8");
+            return r;
         });
 
-        // Register
+        // Register — public
         CROW_ROUTE(app, "/api/auth/register").methods("POST"_method)([](const crow::request& req) {
             auto body = BaseController::parseBody(req);
             if (!body) return BaseController::errorResponse(400, "Invalid JSON");
@@ -44,7 +50,6 @@ public:
             if (user.username.empty() || user.password.empty())
                 return BaseController::errorResponse(400, "用户名和密码不能为空");
 
-            // Check password match
             if (body.has("confirm_password") && body["confirm_password"].s() != user.password)
                 return BaseController::errorResponse(400, "两次密码不一致");
 
@@ -55,19 +60,22 @@ public:
             return BaseController::successResponse("注册成功");
         });
 
-        // Logout
+        // Logout — authenticated
         CROW_ROUTE(app, "/api/auth/logout").methods("POST"_method)([](const crow::request& req) {
+            if (!BaseController::isAuthenticated(req))
+                return BaseController::errorResponse(401, "请先登录");
             std::string token = BaseController::extractToken(req);
             AuthService::instance().logout(token);
             return BaseController::successResponse("已退出登录");
         });
 
-        // Check token
+        // Check token — authenticated
         CROW_ROUTE(app, "/api/auth/check").methods("GET"_method)([](const crow::request& req) {
-            std::string token = BaseController::extractToken(req);
-            if (!AuthService::instance().validateToken(token))
+            if (!BaseController::isAuthenticated(req))
                 return BaseController::errorResponse(401, "Token无效");
-            return crow::response(200, "{\"valid\":true}");
+            crow::response r(200, "{\"valid\":true}");
+            r.set_header("Content-Type", "application/json; charset=utf-8");
+            return r;
         });
     }
 };

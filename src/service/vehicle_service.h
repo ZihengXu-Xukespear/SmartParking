@@ -7,6 +7,9 @@
 #include "../model/car_record.h"
 #include "../model/parking_lot.h"
 #include "../config.h"
+#include "blacklist_service.h"
+#include "balance_service.h"
+#include "plate_service.h"
 
 class VehicleService : public CrudService<CarRecord> {
 public:
@@ -18,88 +21,111 @@ public:
     bool checkIn(const std::string& plate, const std::string& billing_type, std::string& error) {
         if (!validatePlate(plate)) { error = "车牌号格式不正确"; return false; }
 
+        // Blacklist check (quick, outside transaction — rare change)
+        if (BlacklistService::instance().isBlacklisted(plate)) {
+            error = "该车辆已被列入黑名单，禁止入库";
+            return false;
+        }
+
         auto conn = getConnection();
         if (!conn) { error = "数据库连接失败"; return false; }
         MYSQL* mysql = conn->get();
+        Transaction tx(mysql);
 
         // Check if already inside
-        std::string sql = "SELECT id FROM CAR_RECORD WHERE license_plate='" +
-            escape(mysql, plate) + "' AND check_out_time IS NULL";
+        std::string sql = "SELECT id FROM CAR_RECORD WHERE license_plate=" +
+            quote(mysql, plate) + " AND check_out_time IS NULL";
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "查询失败"; return false; }
         MYSQL_RES* res = mysql_store_result(mysql);
         if (res && mysql_num_rows(res) > 0) {
             mysql_free_result(res);
             error = "该车辆已在停车场内";
-            return false;
+            return false; // tx rollback
         }
         if (res) mysql_free_result(res);
 
-        // Check capacity
+        // Atomic capacity check: increment only if space available
         const auto& cfg = AppConfig::instance();
-        sql = "SELECT P_total_count, P_current_count, P_reserve_count FROM PARKING_LOT WHERE P_name='" +
-            escape(mysql, cfg.parking_name) + "'";
-        if (mysql_query(mysql, sql.c_str()) != 0) { error = "查询停车场失败"; return false; }
-        res = mysql_store_result(mysql);
-        if (!res) { error = "停车场不存在"; return false; }
-        if (mysql_num_rows(res) == 0) { mysql_free_result(res); error = "停车场不存在"; return false; }
-        MYSQL_ROW row = mysql_fetch_row(res);
-        int total = std::stoi(row[0]), current = std::stoi(row[1]), reserve = std::stoi(row[2]);
-        mysql_free_result(res);
+        sql = "UPDATE PARKING_LOT SET P_current_count = P_current_count + 1 WHERE P_name=" +
+            quote(mysql, cfg.parking_name) + " AND P_current_count + P_reserve_count < P_total_count";
+        if (executeQueryAffected(mysql, sql) <= 0) { error = "停车场已满"; return false; }
 
-        if (current + reserve >= total) { error = "停车场已满"; return false; }
+        // Check if there's an active reservation for this plate
+        int reservationId = 0;
+        sql = "SELECT id FROM RESERVATION WHERE license_plate=" + quote(mysql, plate) +
+            " AND status='active' LIMIT 1";
+        if (mysql_query(mysql, sql.c_str()) == 0) {
+            MYSQL_RES* rres = mysql_store_result(mysql);
+            if (rres && mysql_num_rows(rres) > 0) {
+                MYSQL_ROW rrow = mysql_fetch_row(rres);
+                reservationId = std::stoi(rrow[0]);
+                std::string updSql = "UPDATE RESERVATION SET status='completed' WHERE id=" + std::to_string(reservationId);
+                mysql_query(mysql, updSql.c_str());
+            }
+            if (rres) mysql_free_result(rres);
+        }
 
         // Insert record
-        sql = "INSERT INTO CAR_RECORD (license_plate,check_in_time,location,billing_type) VALUES ('" +
-            escape(mysql, plate) + "',NOW(),'" + escape(mysql, cfg.parking_name) + "','" +
-            escape(mysql, billing_type) + "')";
+        sql = "INSERT INTO CAR_RECORD (license_plate,check_in_time,location,billing_type,reservation_id) VALUES (" +
+            quote(mysql, plate) + ",NOW()," + quote(mysql, cfg.parking_name) + "," +
+            quote(mysql, billing_type) + "," + std::to_string(reservationId) + ")";
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "插入记录失败"; return false; }
 
-        // Increment current count
-        sql = "UPDATE PARKING_LOT SET P_current_count = P_current_count + 1 WHERE P_name='" +
-            escape(mysql, cfg.parking_name) + "'";
-        mysql_query(mysql, sql.c_str());
-
+        if (!tx.commit()) { error = "事务提交失败"; return false; }
         return true;
     }
 
-    bool checkOut(const std::string& plate, double& fee, CarRecord& record, std::string& error) {
+    bool checkOut(const std::string& plate, int userId, double& fee, CarRecord& record, std::string& error) {
         auto conn = getConnection();
         if (!conn) { error = "数据库连接失败"; return false; }
         MYSQL* mysql = conn->get();
+        Transaction tx(mysql);
 
-        // Find unchecked record
-        std::string sql = "SELECT id,license_plate,check_in_time,billing_type FROM CAR_RECORD WHERE license_plate='" +
-            escape(mysql, plate) + "' AND check_out_time IS NULL ORDER BY check_in_time DESC LIMIT 1";
+        // Find unchecked record (include reservation_id)
+        std::string sql = "SELECT id,license_plate,check_in_time,billing_type,reservation_id FROM CAR_RECORD WHERE license_plate=" +
+            quote(mysql, plate) + " AND check_out_time IS NULL ORDER BY check_in_time DESC LIMIT 1";
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "查询失败"; return false; }
         MYSQL_RES* res = mysql_store_result(mysql);
         if (!res || mysql_num_rows(res) == 0) {
             if (res) mysql_free_result(res);
             error = "该车辆不在停车场内";
-            return false;
+            return false; // tx rollback
         }
 
         MYSQL_ROW row = mysql_fetch_row(res);
         int rec_id = std::stoi(row[0]);
         std::string billing_type = row[3] ? row[3] : "standard";
         std::string check_in = row[2] ? row[2] : "";
+        int reservationId = row[4] ? std::stoi(row[4]) : 0;
         mysql_free_result(res);
 
-        // Calculate fee
-        fee = calculateFee(mysql, plate, check_in, billing_type);
+        // Calculate fee (passes 0 if has prepaid reservation for first hour)
+        fee = calculateFee(mysql, plate, check_in, billing_type, reservationId);
 
-        // Update record
+        // Deduct from user balance (skip if fee is 0)
+        if (fee > 0.01) {
+            std::string deductErr;
+            if (!BalanceService::instance().deduct(userId, fee, "checkout",
+                "停车费 " + plate, deductErr)) {
+                error = deductErr;
+                return false; // tx rollback
+            }
+        }
+
+        // Update record with checkout time, fee, exit deadline
         sql = "UPDATE CAR_RECORD SET check_out_time=NOW(), fee=" + std::to_string(fee) +
+            ", exit_deadline=DATE_ADD(NOW(), INTERVAL 10 MINUTE)" +
             " WHERE id=" + std::to_string(rec_id);
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "更新记录失败"; return false; }
 
         // Decrement current count
         const auto& cfg = AppConfig::instance();
-        sql = "UPDATE PARKING_LOT SET P_current_count = GREATEST(P_current_count - 1, 0) WHERE P_name='" +
-            escape(mysql, cfg.parking_name) + "'";
+        sql = "UPDATE PARKING_LOT SET P_current_count = GREATEST(P_current_count - 1, 0) WHERE P_name=" +
+            quote(mysql, cfg.parking_name);
         mysql_query(mysql, sql.c_str());
 
         // Fetch updated record
-        sql = "SELECT id,license_plate,check_in_time,check_out_time,fee,location,billing_type FROM CAR_RECORD WHERE id=" +
+        sql = "SELECT id,license_plate,check_in_time,check_out_time,fee,location,billing_type,exit_deadline FROM CAR_RECORD WHERE id=" +
             std::to_string(rec_id);
         if (mysql_query(mysql, sql.c_str()) == 0) {
             res = mysql_store_result(mysql);
@@ -115,6 +141,7 @@ public:
             }
         }
 
+        if (!tx.commit()) { error = "事务提交失败"; return false; }
         return true;
     }
 
@@ -124,9 +151,9 @@ public:
         MYSQL* mysql = conn->get();
 
         std::string sql = "SELECT id,license_plate,check_in_time,check_out_time,fee,location,billing_type FROM CAR_RECORD WHERE 1=1";
-        if (!plate.empty()) sql += " AND license_plate='" + escape(mysql, plate) + "'";
-        if (!start_date.empty()) sql += " AND check_in_time >= '" + escape(mysql, start_date) + " 00:00:00'";
-        if (!end_date.empty()) sql += " AND check_in_time <= '" + escape(mysql, end_date) + " 23:59:59'";
+        if (!plate.empty()) sql += " AND license_plate=" + quote(mysql, plate);
+        if (!start_date.empty()) sql += " AND check_in_time >= " + quote(mysql, start_date + " 00:00:00");
+        if (!end_date.empty()) sql += " AND check_in_time <= " + quote(mysql, end_date + " 23:59:59");
         sql += " ORDER BY check_in_time DESC LIMIT 500";
 
         return list(sql);
@@ -152,7 +179,24 @@ protected:
 private:
     VehicleService() = default;
 
-    double calculateFee(MYSQL* mysql, const std::string& plate, const std::string& check_in_time, const std::string& billing_type) {
+    double calculateFee(MYSQL* mysql, const std::string& plate, const std::string& check_in_time,
+                        const std::string& billing_type, int reservationId = 0) {
+        // If linked to a prepaid reservation, first hour is already paid
+        int free_minutes_extra = 0;
+        if (reservationId > 0) {
+            std::string resSql = "SELECT prepaid FROM RESERVATION WHERE id=" + std::to_string(reservationId);
+            if (mysql_query(mysql, resSql.c_str()) == 0) {
+                MYSQL_RES* rres = mysql_store_result(mysql);
+                if (rres) {
+                    MYSQL_ROW rrow = mysql_fetch_row(rres);
+                    if (rrow && rrow[0] && std::stod(rrow[0]) > 0) {
+                        free_minutes_extra = 60; // First hour free for prepaid reservations
+                    }
+                    mysql_free_result(rres);
+                }
+            }
+        }
+
         // Check monthly pass first
         std::string sql = "SELECT COUNT(*) FROM MONTHLY_PASS WHERE license_plate='" +
             escape(mysql, plate) + "' AND is_active=1 AND start_date <= CURDATE() AND end_date >= CURDATE()";
@@ -200,31 +244,27 @@ private:
             }
         }
 
-        if (duration_min <= free_minutes) return 0.0;
+        int effective_free = free_minutes + free_minutes_extra;
+        if (duration_min <= effective_free) return 0.0;
 
         double fee = 0.0;
 
         if (billing_type == "tiered" && !tier_config.empty()) {
-            double remaining_hours = std::ceil((duration_min - free_minutes) / 60.0);
-            size_t pos = 0;
-            while (pos < tier_config.size()) {
-                auto h_pos = tier_config.find("\"hours\":", pos);
-                auto r_pos = tier_config.find("\"rate\":", pos);
-                if (h_pos == std::string::npos || r_pos == std::string::npos) break;
-
-                int tier_hours = std::stoi(tier_config.substr(h_pos + 8, tier_config.find("}", h_pos) - h_pos - 8));
-                double tier_rate = std::stod(tier_config.substr(r_pos + 7));
-                tier_rate = std::abs(tier_rate);
-
-                double apply_hours = std::min(remaining_hours, (double)tier_hours);
-                fee += apply_hours * tier_rate;
-                remaining_hours -= apply_hours;
-                pos = r_pos + 10;
-                if (remaining_hours <= 0) break;
+            double remaining_hours = std::ceil((duration_min - effective_free) / 60.0);
+            auto tier_json = crow::json::load(tier_config);
+            if (tier_json) {
+                for (const auto& tier : tier_json) {
+                    int tier_hours = tier["hours"].i();
+                    double tier_rate = tier["rate"].d();
+                    double apply_hours = std::min(remaining_hours, (double)tier_hours);
+                    fee += apply_hours * tier_rate;
+                    remaining_hours -= apply_hours;
+                    if (remaining_hours <= 0) break;
+                }
             }
             if (remaining_hours > 0) fee += remaining_hours * hourly_rate;
         } else {
-            double hours = std::ceil((duration_min - free_minutes) / 60.0);
+            double hours = std::ceil((duration_min - effective_free) / 60.0);
             fee = hours * hourly_rate;
         }
 
@@ -235,17 +275,6 @@ private:
     }
 
     bool validatePlate(const std::string& plate) {
-        if (plate.size() < 9 || plate.size() > 10) return false;
-        const std::string provinces = "京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁";
-        bool found = false;
-        for (size_t i = 0; i < provinces.size(); i += 3) {
-            if (plate.size() >= 3 && provinces.substr(i, 3) == plate.substr(0, 3)) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) return false;
-        if (plate[3] < 'A' || plate[3] > 'Z') return false;
-        return true;
+        return PlateService::validatePlate(plate);
     }
 };

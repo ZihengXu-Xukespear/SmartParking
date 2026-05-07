@@ -1,16 +1,19 @@
-// 系统初始化页面逻辑
+// System initialization page logic
+let reinitToken = null;
 
-// 检查是否已初始化
+// Check if already initialized
 (async function() {
     const res = await get('/api/init/status');
     if (res && res.ok && res.data.initialized) {
-        document.querySelector('.init-container').innerHTML =
-            '<h2>系统已初始化</h2>' +
-            '<p class="subtitle">停车场: ' + res.data.parking_name + '</p>' +
-            '<a href="/index.html" class="btn btn-primary btn-block btn-lg" style="margin-top:24px">前往登录</a>';
+        // Show re-init page
+        document.getElementById('page-init').style.display = 'none';
+        document.getElementById('page-reinit').style.display = '';
+        document.getElementById('reinit-parking-name').textContent =
+            '停车场: ' + res.data.parking_name;
     }
 })();
 
+// Fresh init (no auth needed — no users exist yet)
 async function handleInit() {
     const btn = document.getElementById('init-btn');
     const config = {
@@ -29,6 +32,19 @@ async function handleInit() {
         showError('alert-box', '请输入数据库密码');
         return;
     }
+    if (!config.parking_name) {
+        showError('alert-box', '请输入停车场名称');
+        return;
+    }
+
+    if (!confirm(
+        '确认初始化系统？\n\n' +
+        '数据库: ' + config.host + ':' + config.port + '/' + config.database + '\n' +
+        '停车场: ' + config.parking_name + '\n' +
+        '车位总数: ' + config.capacity + ' 个\n' +
+        '费率: ' + config.fee + ' 元/小时\n\n' +
+        '初始化后将创建默认 root 管理员账号。'
+    )) return;
 
     btn.disabled = true;
     btn.textContent = '初始化中...';
@@ -43,5 +59,65 @@ async function handleInit() {
         setTimeout(() => window.location.href = '/index.html', 2000);
     } else {
         showError('alert-box', res?.data?.error || '初始化失败，请检查配置');
+    }
+}
+
+// Root login for re-init
+async function handleRootLogin() {
+    const username = document.getElementById('reinit-root-user').value.trim();
+    const password = document.getElementById('reinit-root-pass').value;
+
+    if (!username || !password) {
+        showError('reinit-alert-box', '请输入 root 凭据');
+        return;
+    }
+
+    const btn = document.getElementById('reinit-login-btn');
+    btn.disabled = true;
+    btn.textContent = '验证中...';
+
+    const res = await post('/api/auth/login', { username, password });
+
+    btn.disabled = false;
+    btn.textContent = 'Root 验证';
+
+    if (res && res.ok) {
+        const user = res.data.user;
+        if (user.role !== 'root' && user.role !== 'admin') {
+            showError('reinit-alert-box', '该账号无系统初始化权限，请使用 root 账号');
+            return;
+        }
+        reinitToken = res.data.token;
+        document.getElementById('reinit-form-area').style.display = '';
+        showSuccess('reinit-alert-box', 'Root 验证通过，请谨慎操作');
+        btn.style.display = 'none';
+    } else {
+        showError('reinit-alert-box', res?.data?.error || '验证失败');
+    }
+}
+
+// Force re-init (requires root token)
+async function handleForceReinit() {
+    if (!confirm('⚠ 最终确认：此操作将清空所有现有数据并重新初始化数据库。\n\n确定要继续吗？')) return;
+    if (!confirm('再次确认：所有用户、停车记录、预约、月卡数据将永久丢失。\n\n此操作不可撤销！')) return;
+
+    const btn = document.getElementById('reinit-force-btn');
+    btn.disabled = true;
+    btn.textContent = '重新初始化中...';
+
+    const res = await request('/api/init/database', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + reinitToken }
+    });
+
+    btn.disabled = false;
+    btn.textContent = '确认重新初始化（将清空所有数据）';
+
+    if (res && res.ok) {
+        showSuccess('reinit-alert-box', '重新初始化成功！系统已重置，请重新登录。');
+        localStorage.clear();
+        setTimeout(() => window.location.href = '/index.html', 2500);
+    } else {
+        showError('reinit-alert-box', res?.data?.error || '重新初始化失败');
     }
 }
