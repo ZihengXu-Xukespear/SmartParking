@@ -153,23 +153,20 @@ public:
         mysql_query(mysql, parking_sql.c_str());
 
         // Create triggers
-        mysql_query(mysql,
-            "DROP TRIGGER IF EXISTS after_reservation_insert"
-        );
-        mysql_query(mysql,
+        mysql_query(mysql, "DROP TRIGGER IF EXISTS after_reservation_insert");
+        mysql_query(mysql, "DROP TRIGGER IF EXISTS after_reservation_delete");
+
+        if (mysql_query(mysql,
             "CREATE TRIGGER after_reservation_insert "
             "AFTER INSERT ON RESERVATION FOR EACH ROW "
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = P_reserve_count + 1 WHERE P_name = NEW.P_name; END"
-        );
+        ) != 0) return false;
 
-        mysql_query(mysql,
-            "DROP TRIGGER IF EXISTS after_reservation_delete"
-        );
-        mysql_query(mysql,
+        if (mysql_query(mysql,
             "CREATE TRIGGER after_reservation_delete "
             "AFTER DELETE ON RESERVATION FOR EACH ROW "
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = GREATEST(P_reserve_count - 1, 0) WHERE P_name = OLD.P_name; END"
-        );
+        ) != 0) return false;
 
         // Create default root admin if no root exists
         mysql_query(mysql, "SELECT COUNT(*) FROM USER WHERE role='root'");
@@ -195,7 +192,7 @@ public:
             std::string eventSql = "CREATE EVENT clean_expired_reservations ON SCHEDULE EVERY 1 MINUTE DO "
                 "BEGIN DELETE FROM RESERVATION WHERE status='active' AND created_at < DATE_SUB(NOW(), INTERVAL " +
                 std::to_string(expire_min) + " MINUTE); END";
-            mysql_query(mysql, eventSql.c_str());
+            if (mysql_query(mysql, eventSql.c_str()) != 0) return false;
         }
 
         return true;

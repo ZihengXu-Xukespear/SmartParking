@@ -149,6 +149,15 @@ function openPassModal(id) {
 async function savePass() {
     const id=document.getElementById('edit-pass-id').value;
     const body={license_plate:document.getElementById('pass-edit-plate').value.trim(),pass_type:document.getElementById('pass-edit-type').value.trim(),start_date:document.getElementById('pass-edit-start').value,end_date:document.getElementById('pass-edit-end').value,fee:parseFloat(document.getElementById('pass-edit-fee').value)};
+    if (!body.license_plate) { showError('alert-box', '请输入车牌号'); return; }
+
+    // Validate plate format
+    const valRes = await post('/api/plate/validate', { license_plate: body.license_plate });
+    if (valRes && valRes.ok && !valRes.data.valid) {
+        showError('alert-box', valRes.data.message || '车牌号格式不正确');
+        return;
+    }
+
     let r;
     if(id) r=await put('/api/parking/monthly-passes/'+id,body);
     else r=await post('/api/parking/monthly-passes',body);
@@ -201,6 +210,14 @@ async function loadBlacklist() {
 async function addBlacklist() {
     const plate=document.getElementById('bl-plate').value.trim(), reason=document.getElementById('bl-reason').value.trim();
     if(!plate){showError('bl-alert','请输入车牌号');return;}
+
+    // Validate plate format
+    const valRes = await post('/api/plate/validate', { license_plate: plate });
+    if (valRes && valRes.ok && !valRes.data.valid) {
+        showError('bl-alert', valRes.data.message || '车牌号格式不正确');
+        return;
+    }
+
     const r=await post('/api/blacklist',{license_plate:plate,reason});
     if(r&&r.ok){showSuccess('bl-alert','已添加');document.getElementById('bl-plate').value='';document.getElementById('bl-reason').value='';loadBlacklist();}
     else showError('bl-alert',r?.data?.error||'添加失败');

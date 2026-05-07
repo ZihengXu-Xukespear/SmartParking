@@ -190,7 +190,11 @@ int main() {
     // Setup static file serving (must be after API routes to avoid conflicts)
     setupStaticFiles(app);
 
-    // CORS middleware - add to all responses
+    // Frontend is served from the same origin, no CORS needed for production.
+    // If using a separate frontend dev server in the future, add:
+    //   #include "crow/middlewares/cors.h"
+    //   crow::App<crow::CorsHandler> app;
+    // and adjust all controller signatures accordingly.
     app.loglevel(crow::LogLevel::Info);
 
     int port = AppConfig::instance().initialized ? AppConfig::instance().server_port : 8080;

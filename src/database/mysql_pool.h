@@ -45,14 +45,18 @@ public:
         return inst;
     }
 
+    static void setupConnectionOptions(MYSQL* conn) {
+        mysql_options(conn, MYSQL_SET_CHARSET_NAME, "utf8mb4");
+        mysql_options(conn, MYSQL_INIT_COMMAND, "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+    }
+
     bool init(const AppConfig& cfg, int pool_size = 5) {
         std::lock_guard<std::mutex> lock(mutex_);
         mysql_library_init(0, nullptr, nullptr);
         for (int i = 0; i < pool_size; i++) {
             MYSQL* conn = mysql_init(nullptr);
             if (!conn) return false;
-            mysql_options(conn, MYSQL_SET_CHARSET_NAME, "utf8mb4");
-            mysql_options(conn, MYSQL_INIT_COMMAND, "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci");
+            setupConnectionOptions(conn);
             if (!mysql_real_connect(conn, cfg.host.c_str(), cfg.user.c_str(),
                 cfg.password.c_str(), cfg.database.c_str(), cfg.port, nullptr, 0)) {
                 last_error_ = mysql_error(conn);
@@ -90,9 +94,9 @@ public:
             const auto& cfg = AppConfig::instance();
             mysql_close(conn);
             conn = mysql_init(nullptr);
-            mysql_options(conn, MYSQL_SET_CHARSET_NAME, "utf8mb4");
+            setupConnectionOptions(conn);
             if (!mysql_real_connect(conn, cfg.host.c_str(), cfg.user.c_str(),
-                cfg.password.c_str(), cfg.database.c_str(), cfg.port, nullptr, 0)) {
+                cfg.password.c_str(), cfg.database.c_str(), cfg.port, nullptr, CLIENT_MULTI_STATEMENTS)) {
                 return nullptr;
             }
         }

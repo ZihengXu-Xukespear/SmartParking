@@ -31,12 +31,18 @@ public:
             if (res) mysql_free_result(res);
         }
 
+        // Clean up expired/completed reservation for this plate to allow new reservation
+        // (the UNIQUE index prevents duplicate license_plate rows)
+        sql = "DELETE FROM RESERVATION WHERE license_plate=" + quote(mysql, plate) + " AND status != 'active'";
+        mysql_query(mysql, sql.c_str());
+
         // Check capacity and get fee
         sql = "SELECT P_total_count, P_current_count, P_reserve_count, P_fee FROM PARKING_LOT WHERE P_name=" +
             quote(mysql, P_name);
         if (mysql_query(mysql, sql.c_str()) != 0) { error = "查询停车场失败"; return false; }
         MYSQL_RES* res = mysql_store_result(mysql);
-        if (!res || mysql_num_rows(res) == 0) { error = "停车场不存在"; return false; }
+        if (!res) { error = "停车场不存在"; return false; }
+        if (mysql_num_rows(res) == 0) { mysql_free_result(res); error = "停车场不存在"; return false; }
         MYSQL_ROW row = mysql_fetch_row(res);
         int total = std::stoi(row[0]), current = std::stoi(row[1]), reserve = std::stoi(row[2]);
         double prepaidFee = row[3] ? std::stod(row[3]) : 5.00;

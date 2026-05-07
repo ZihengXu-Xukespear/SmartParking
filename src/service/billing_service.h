@@ -3,6 +3,7 @@
 #include <vector>
 #include "base_service.h"
 #include "../model/billing.h"
+#include "plate_service.h"
 
 class BillingService : public BaseService {
 public:
@@ -85,6 +86,7 @@ public:
     }
 
     bool addMonthlyPass(const MonthlyPass& pass) {
+        if (!PlateService::validatePlate(pass.license_plate)) return false;
         auto conn = getConnection();
         if (!conn) return false;
         MYSQL* mysql = conn->get();
@@ -100,6 +102,7 @@ public:
     }
 
     bool updateMonthlyPass(int id, const MonthlyPass& pass) {
+        if (!PlateService::validatePlate(pass.license_plate)) return false;
         auto conn = getConnection();
         if (!conn) return false;
         MYSQL* mysql = conn->get();
