@@ -40,7 +40,9 @@ if(NOT DEFINED ASIO_INCLUDE_DIR)
 endif()
 
 # Main executable (all code is header-only, just compile main.cpp)
-add_executable(smart_parking src/main.cpp)
+file(GLOB_RECURSE SOURCES src/*.cpp)
+add_executable(smart_parking ${SOURCES})
+target_compile_definitions(smart_parking PRIVATE _WIN32_WINNT=0x0601 WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(smart_parking PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${MYSQL_INCLUDE_DIR}
