@@ -70,7 +70,7 @@ public:
             "  prepaid DECIMAL(10,2) DEFAULT 0.00,"
             "  status VARCHAR(20) DEFAULT 'active',"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
-            "  UNIQUE INDEX idx_plate (license_plate)"
+            "  INDEX idx_plate (license_plate)"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
             "CREATE TABLE IF NOT EXISTS BILLING_RULE ("
@@ -110,6 +110,24 @@ public:
             "  license_plate VARCHAR(20) NOT NULL UNIQUE,"
             "  reason VARCHAR(255) DEFAULT '',"
             "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+            "CREATE TABLE IF NOT EXISTS INTERCEPTION_LOG ("
+            "  id INT PRIMARY KEY AUTO_INCREMENT,"
+            "  license_plate VARCHAR(20) NOT NULL,"
+            "  reason VARCHAR(255) DEFAULT '',"
+            "  intercepted_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  INDEX idx_intercepted_at (intercepted_at)"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+
+            "CREATE TABLE IF NOT EXISTS BULLETIN ("
+            "  id INT PRIMARY KEY AUTO_INCREMENT,"
+            "  content TEXT NOT NULL,"
+            "  is_pinned TINYINT DEFAULT 0,"
+            "  valid_from DATETIME DEFAULT NULL,"
+            "  valid_until DATETIME DEFAULT NULL,"
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
+            "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
             ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
 
             "CREATE TABLE IF NOT EXISTS MONTHLY_PASS ("
@@ -171,6 +189,20 @@ public:
             "BEGIN UPDATE PARKING_LOT SET P_reserve_count = GREATEST(P_reserve_count - 1, 0) WHERE P_name = OLD.P_name; END"
         );
 
+        // Trigger for status change from active to non-active (soft delete)
+        mysql_query(mysql,
+            "DROP TRIGGER IF EXISTS after_reservation_status_change"
+        );
+        mysql_query(mysql,
+            "CREATE TRIGGER after_reservation_status_change "
+            "AFTER UPDATE ON RESERVATION FOR EACH ROW "
+            "BEGIN "
+            "  IF OLD.status = 'active' AND NEW.status != 'active' THEN "
+            "    UPDATE PARKING_LOT SET P_reserve_count = GREATEST(P_reserve_count - 1, 0) WHERE P_name = NEW.P_name; "
+            "  END IF; "
+            "END"
+        );
+
         // Create default root admin if no root exists
         mysql_query(mysql, "SELECT COUNT(*) FROM USER WHERE role='root'");
         MYSQL_RES* adminRes = mysql_store_result(mysql);
@@ -187,13 +219,35 @@ public:
             mysql_query(mysql, adminSql.c_str());
         }
 
+        // Migrate old notice to BULLETIN table if empty
+        mysql_query(mysql, "SELECT COUNT(*) FROM BULLETIN");
+        MYSQL_RES* blres = mysql_store_result(mysql);
+        bool hasBulletin = false;
+        if (blres) {
+            MYSQL_ROW blrow = mysql_fetch_row(blres);
+            if (blrow && std::stoi(blrow[0]) > 0) hasBulletin = true;
+            mysql_free_result(blres);
+        }
+        if (!hasBulletin && !AppConfig::instance().notice.empty()) {
+            std::string oldNotice = AppConfig::instance().notice;
+            std::string noticeSql = "INSERT INTO BULLETIN (content,is_pinned) VALUES ('" +
+                ([](MYSQL* m, const std::string& s) {
+                    char* buf = new char[s.size() * 2 + 1];
+                    mysql_real_escape_string(m, buf, s.c_str(), (unsigned long)s.size());
+                    std::string escaped(buf);
+                    delete[] buf;
+                    return escaped;
+                })(mysql, oldNotice) + "',1)";
+            mysql_query(mysql, noticeSql.c_str());
+        }
+
         // Enable event scheduler and create cleanup event
         mysql_query(mysql, "SET GLOBAL event_scheduler = ON");
         mysql_query(mysql, "DROP EVENT IF EXISTS clean_expired_reservations");
         {
             int expire_min = AppConfig::instance().notice_expire_minutes;
             std::string eventSql = "CREATE EVENT clean_expired_reservations ON SCHEDULE EVERY 1 MINUTE DO "
-                "BEGIN DELETE FROM RESERVATION WHERE status='active' AND created_at < DATE_SUB(NOW(), INTERVAL " +
+                "BEGIN UPDATE RESERVATION SET status='expired' WHERE status='active' AND created_at < DATE_SUB(NOW(), INTERVAL " +
                 std::to_string(expire_min) + " MINUTE); END";
             mysql_query(mysql, eventSql.c_str());
         }

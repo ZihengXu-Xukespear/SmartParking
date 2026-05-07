@@ -83,8 +83,21 @@ public:
     }
 
     bool cancel(int id) {
-        // Hard delete — trigger after_reservation_delete handles reserve count, no refund
-        return deleteById(id);
+        // Soft delete — trigger after_reservation_status_change handles reserve count
+        auto conn = getConnection();
+        if (!conn) return false;
+        MYSQL* mysql = conn->get();
+        std::string sql = "UPDATE RESERVATION SET status='cancelled' WHERE id=" + std::to_string(id) + " AND status='active'";
+        return executeQueryAffected(mysql, sql) > 0;
+    }
+
+    std::vector<Reservation> getHistory(const std::string& startDate = "", const std::string& endDate = "",
+                                         int limit = 200, int offset = 0) {
+        std::string sql = "SELECT id,license_plate,P_name,prepaid,status,created_at FROM RESERVATION WHERE status != 'active'";
+        if (!startDate.empty()) sql += " AND DATE(created_at) >= '" + startDate + "'";
+        if (!endDate.empty()) sql += " AND DATE(created_at) <= '" + endDate + "'";
+        sql += " ORDER BY created_at DESC LIMIT " + std::to_string(limit) + " OFFSET " + std::to_string(offset);
+        return CrudService<Reservation>::list(sql);
     }
 
 protected:
